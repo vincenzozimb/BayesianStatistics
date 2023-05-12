@@ -1,0 +1,166 @@
+#  Exercise 1
+
+---
+title: Homework 1 - Bayesian Statistics 2023
+author: Vincenzo Zimbardo 
+date: 12/05/2023
+output: html_document
+---
+
+A Linear Congruential Generator (LCG) is given by
+\begin{align*}  
+x_i & = a_0 + a_1 x_{i-1} \mod M \\
+u_i & = x_i / M
+\end{align*}    
+and when $a_0=0$ yields the Multiplicative Congruential Generator (MCG). Marsaglia showed that the consecutive tuples $(u_i, \ldots, u_{i+k-1})$ from an MCG have a lattice structure.
+
+
+Consider two MCG, with multipliers $a_1=33$ and $a_2=44$ respectively, both with modulo $M=59$.
+
+```{r echo=TRUE}  
+# Multiplicative Congruential Generator 
+MCG <- function(n, a, M) {
+  seed <- 1
+  r <- rep(0, n+1)
+  r[1] <- seed 
+  for (i in 2:(n+1)) {
+    r[i] <- (a*r[i-1])%%M
+  }
+  r <- r[-1]/M
+  return(r)
+}
+```
+
+```{r echo=TRUE}
+# Variables
+n <- 59
+a1 <- 33
+a2 <- 44
+M <- 59
+```
+
+### Plot the lattice structure for $k=2$. 
+```{r echo=TRUE}
+# Plot lattices
+par(mfcol=c(1,2))
+u1 <- MCG(n, a1, M)      
+plot(u1[-n], u1[-1], xlab="u[t]", ylab="u[t+1]", main="a=33, M=59")
+u2 <- MCG(n, a2, M)      
+plot(u2[-n], u2[-1], xlab="u[t]", ylab="u[t+1]", main="a=44, M=59")
+```
+
+### Find a lattice basis
+
+```{r echo=TRUE}
+library(geometry)
+
+FindBasis <- function(u) {
+  # Define vectors (their dim is n-1)
+  x <- u[-n]
+  y <- u[-1]
+  # Choose one point as the origin (the last one), say (x0,y0)
+  x0 <- x[n-1]
+  y0 <- y[n-1]
+  # Find the closest point to (x0,y0), say (x1,y1) 
+  dist2 <- (x - x0)^2 + (y - y0)^2
+  dist2 <- dist2[-(n-1)]
+  minidx <- which.min(dist2)
+  x1 <- x[minidx]
+  y1 <- y[minidx]
+  # Find the second closest point to (x0,y0), say (x2,y2), s.t. the corresponding vector
+  # is also linearly independent from the first
+  bol <- TRUE
+  dist_orig <- dist2
+  while (bol) {
+    dist2 <- dist2[-minidx]
+    minidx <- which.min(dist2)
+    minidx_orig <- which(dist_orig == dist2[minidx])
+    det <- (x1-x0)*(y[minidx_orig]-y0)-(x[minidx_orig]-x0)*(y1-y0)
+    if (abs(det) > 1e-6) {
+       bol <- FALSE
+    }
+  }
+  x2 <- x[minidx_orig]
+  y2 <- y[minidx_orig]
+  # Now plot the basis
+  plot(x, y, asp=1)
+  points(x0, y0, col="blue", lwd=5)
+  points(x1, y1, col="red", lwd=5)
+  points(x2, y2, col="green", lwd=5)
+  arrows(x0,y0,x1,y1, code=2, lwd=2, length=.15)
+  arrows(x0,y0,x2,y2, code=2, lwd=2, length=.15)
+
+  return (list(x0,y0,x1,y1,x2,y2,x,y))
+}
+```
+
+Plot the basis, say $\vec{v_1}$ and $\vec{v_2}$
+```{r echo=TRUE}
+pnts1 <- FindBasis(u1)
+pnts2 <- FindBasis(u2)
+```
+
+### Find the distance among the parallel lines.
+
+For $i=1,2$, let $\vec{d_i}$ the component of the vector $\vec{v_i}$ orthogonal to the other basis vector.
+The distances between the two sets of parallel lines will be the norm of these vectors.  
+
+\begin{align*}
+  \vec{d}_1 &= \vec{v}_1 - \left(\frac{\vec{v}_1 \cdot \vec{v}_2}{\vec{v}_2 \cdot \vec{v}_2}\right) \vec{v}_2 &
+  \vec{d}_2 &= \vec{v}_2 - \left(\frac{\vec{v}_1 \cdot \vec{v}_2}{\vec{v}_1 \cdot \vec{v}_1}\right) \vec{v}_1
+\end{align*}
+
+```{r echo=TRUE}
+distance <- function(pnts) {
+  # Extract vector coordinates
+  x0 <- pnts[[1]]
+  y0 <- pnts[[2]]
+  v1x <- pnts[[3]]-x0
+  v1y <- pnts[[4]]-y0
+  v2x <- pnts[[5]]-x0
+  v2y <- pnts[[6]]-y0
+  # Calculate the two coefficients in the linear combination
+  scal <- v1x*v2x + v1y*v2y
+  scal1 <- scal / ( v2x*v2x + v2y*v2y )
+  scal2 <- scal / ( v1x*v1x + v1y*v1y )
+  # Generate the coordinates of the d vectors
+  d1x <- v1x - scal1*v2x
+  d1y <- v1y - scal1*v2y
+  d2x <- v2x - scal2*v1x
+  d2y <- v2y - scal2*v1y
+  # Replot lattices with also the d vectors
+  x <- unlist(pnts[7])
+  y <- unlist(pnts[8])
+  
+  plot(x, y, asp=1)
+  
+  points(x0, y0, col="blue", lwd=8)
+  points(pnts[[3]], pnts[[4]], col="red", lwd=5)
+  points(pnts[[5]], pnts[[6]], col="green", lwd=5)
+  
+  arrows(x0,y0,x0+v1x,y0+v1y, code=2, lwd=2,length=.15)
+  arrows(x0,y0,x0+v2x,y0+v2y, code=2, lwd=2, length=.15)
+  
+  arrows(x0,y0,x0+d1x,y0+d1y, col="yellow", code=2, lwd=2, lty=2, length=.15)
+  arrows(x0,y0,x0+d2x,y0+d2y, col="lightblue", code=2, lwd=2, lty=2, length=.15)
+
+  # Calculate the distances and return
+  dist1 <- sqrt(d1x^2 + d1y^2)
+  dist2 <- sqrt(d2x^2 + d2y^2)
+
+  return (max(c(dist1,dist2)))
+
+}
+```
+Replot the lattices including the $\vec{d}$ vectors:
+```{r vincenzo, echo=TRUE}
+  # First MCG
+  d1 <- distance(pnts1)
+  # Second MCG
+  d2 <- distance(pnts2)
+```
+
+The maximum distance between parallel lines is `r sprintf("dist1 = %f",d1)` for the first MCG, while it is `r sprintf("dist2 = %f",d2)` for the second.
+This distance is a measure of the quality of the $MCG$, the smaller it is, the better the $MCG$ is. 
+
+### Find another value of $a$ for which the period equals $P=58$, but the maximum distance between parallel lines is greater than in the case $a=44$ 
