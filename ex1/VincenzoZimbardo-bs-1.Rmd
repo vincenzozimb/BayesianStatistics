@@ -53,7 +53,7 @@ plot(u2[-n], u2[-1], xlab="u[t]", ylab="u[t+1]", main="a=44, M=59")
 ```{r echo=TRUE}
 library(geometry)
 
-FindBasis <- function(u) {
+FindBasis <- function(u, plot=TRUE) {
   # Define vectors (their dim is n-1)
   x <- u[-n]
   y <- u[-1]
@@ -82,12 +82,14 @@ FindBasis <- function(u) {
   x2 <- x[minidx_orig]
   y2 <- y[minidx_orig]
   # Now plot the basis
-  plot(x, y, asp=1)
-  points(x0, y0, col="blue", lwd=5)
-  points(x1, y1, col="red", lwd=5)
-  points(x2, y2, col="green", lwd=5)
-  arrows(x0,y0,x1,y1, code=2, lwd=2, length=.15)
-  arrows(x0,y0,x2,y2, code=2, lwd=2, length=.15)
+  if (plot) {
+    plot(x, y, asp=1)
+    points(x0, y0, col="blue", lwd=5)
+    points(x1, y1, col="red", lwd=5)
+    points(x2, y2, col="green", lwd=5)
+    arrows(x0,y0,x1,y1, code=2, lwd=2, length=.15)
+    arrows(x0,y0,x2,y2, code=2, lwd=2, length=.15)
+  }
 
   return (list(x0,y0,x1,y1,x2,y2,x,y))
 }
@@ -110,7 +112,7 @@ The distances between the two sets of parallel lines will be the norm of these v
 \end{align*}
 
 ```{r echo=TRUE}
-distance <- function(pnts) {
+distance <- function(pnts, plot=TRUE) {
   # Extract vector coordinates
   x0 <- pnts[[1]]
   y0 <- pnts[[2]]
@@ -128,20 +130,22 @@ distance <- function(pnts) {
   d2x <- v2x - scal2*v1x
   d2y <- v2y - scal2*v1y
   # Replot lattices with also the d vectors
-  x <- unlist(pnts[7])
-  y <- unlist(pnts[8])
-  
-  plot(x, y, asp=1)
-  
-  points(x0, y0, col="blue", lwd=8)
-  points(pnts[[3]], pnts[[4]], col="red", lwd=5)
-  points(pnts[[5]], pnts[[6]], col="green", lwd=5)
-  
-  arrows(x0,y0,x0+v1x,y0+v1y, code=2, lwd=2,length=.15)
-  arrows(x0,y0,x0+v2x,y0+v2y, code=2, lwd=2, length=.15)
-  
-  arrows(x0,y0,x0+d1x,y0+d1y, col="yellow", code=2, lwd=2, lty=2, length=.15)
-  arrows(x0,y0,x0+d2x,y0+d2y, col="lightblue", code=2, lwd=2, lty=2, length=.15)
+  if (plot) {
+    x <- unlist(pnts[7])
+    y <- unlist(pnts[8])
+    
+    plot(x, y, asp=1)
+    
+    points(x0, y0, col="blue", lwd=8)
+    points(pnts[[3]], pnts[[4]], col="red", lwd=5)
+    points(pnts[[5]], pnts[[6]], col="green", lwd=5)
+    
+    arrows(x0,y0,x0+v1x,y0+v1y, code=2, lwd=2,length=.15)
+    arrows(x0,y0,x0+v2x,y0+v2y, code=2, lwd=2, length=.15)
+    
+    arrows(x0,y0,x0+d1x,y0+d1y, col="yellow", code=2, lwd=2, lty=2, length=.15)
+    arrows(x0,y0,x0+d2x,y0+d2y, col="lightblue", code=2, lwd=2, lty=2, length=.15)   
+  }
 
   # Calculate the distances and return
   dist1 <- sqrt(d1x^2 + d1y^2)
@@ -152,14 +156,23 @@ distance <- function(pnts) {
 }
 ```
 Replot the lattices including the $\vec{d}$ vectors:
-```{r vincenzo, echo=TRUE}
-  # First MCG
-  d1 <- distance(pnts1)
-  # Second MCG
-  d2 <- distance(pnts2)
+```{r echo=TRUE}
+# First MCG
+d1 <- distance(pnts1)
+# Second MCG
+d2 <- distance(pnts2)
 ```
 
 The maximum distance between parallel lines is `r sprintf("dist1 = %f",d1)` for the first MCG, while it is `r sprintf("dist2 = %f",d2)` for the second.
 This distance is a measure of the quality of the $MCG$, the smaller it is, the better the $MCG$ is. 
 
 ### Find another value of $a$ for which the period equals $P=58$, but the maximum distance between parallel lines is greater than in the case $a=44$ 
+
+```{r echo=TRUE}
+for (a in 2:M-1) {
+  u <- MCG(n, a, M)
+  pnt <- FindBasis(u, plot=FALSE)
+  dist <- distance(pnt, plot=FALSE)
+  sprintf("dist = %f",dist)
+}
+```
