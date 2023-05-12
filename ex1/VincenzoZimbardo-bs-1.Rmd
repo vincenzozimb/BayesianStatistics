@@ -3,7 +3,6 @@
 ---
 title: Homework 1 - Bayesian Statistics 2023
 author: Vincenzo Zimbardo 
-date: 12/05/2023
 output: html_document
 ---
 

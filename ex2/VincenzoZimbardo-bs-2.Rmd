@@ -1,0 +1,9 @@
+#  Exercise 2
+
+---
+title: Homework 1 - Bayesian Statistics 2023
+author: Vincenzo Zimbardo 
+output: html_document
+---
+
+Ciao ciao
