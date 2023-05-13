@@ -202,3 +202,124 @@ a <- avec[which.max(d)]
 u <- MCG(n, a, M)
 pnt <- FindBasis(u)
 ```
+
+# Exercise 2
+
+Suppose that we are using an MCG with period $P \le 2^{32}$.
+
+- Evaluate Marsaglia's upper bound on the number of planes which will contain all consecutive $k=10$ tuples from the MCG.
+
+```{r echo=TRUE}
+# Calculate the Marsaglia's upper bound
+MarsagliaBound <- function(k, P) {
+    bound <- (factorial(k)*P)^(1/k)
+    return(bound)
+}
+```
+```{r echo=TRUE}
+MarsagliaBound(k=10, P=2^(32))
+```
+
+- Repeat the previous part, but assume now a much larger bound $P \le 2^{64}$.
+
+```{r echo=TRUE}
+MarsagliaBound(k=10, P=2^(64))
+```
+
+- Repeat the previous two parts for k=20 and again for k=100.
+```{r echo=TRUE}
+MarsagliaBound(k=20, P=2^(32))
+MarsagliaBound(k=20, P=2^(64))
+MarsagliaBound(k=100, P=2^(32))
+MarsagliaBound(k=100, P=2^(64))
+```
+
+
+# Exercise 3
+
+Suppose that an MCG becomes available with period $2^{19937}-1$. What is Marsaglia's upper bound on the number of planes in $[0,1)^{10}$ 
+that will contain all 10-tuples from such a generator?
+
+```{r echo=TRUE}
+P = 2^19937 - 1
+MarsagliaBound(k=10, P)
+```
+In this case the theoretical value of the Marsaglia's bound is so big that it causes an overflow in R, being bigger than the maximum number available.
+This means that, at the discretization level of the floating number in R, we can consider the MCG as covering "densely" the interval $\mathcal{U}([0,1))$,
+because the distance of parallel hyperplanes goes below the floating resolution level.
+
+
+# Exercise 4
+
+A relatively new and quite different generator type is the Inversive Congruential Generator, ICG. For a prime number $M$ the ICG update is
+
+$$
+x_i = 
+\begin{cases}
+a_0 + a_1 x_{i-1}^{-1} \mod M & \qquad x_{i-1} \neq 0 \ , \\
+a_0 & \qquad x_{i-1} = 0 \ .
+\end{cases} 
+$$    
+
+When $x \neq 0$, then $x^{-1}$ is the unique number in $\{0, 1, \ldots, M -1 \}$ with $x x^{-1} = 1 \mod M$. 
+The ICG behaves as if it uses the convention $0^{-1} = 0$. These methods produce a sequence of integer values $x_i \in \{0, 1, \ldots, M - 1 \}$, 
+that is, integers modulo $M$. With good choices for the constants $a_j$ and $M$, the $x_i$ can simulate independent random integers modulo $M$. 
+
+Consider the ICG for $M=59$, $a_0=1$ and $a_1 = 17$.
+
+```{r echo=TRUE}
+# Find inverse. If it not exists, return 0
+Inverse <- function(x, M){
+  if (x == 0) {
+     return (x)
+  }
+  for (i in 1:(M-1)) {
+     if ( (x*i) %% M == 1) {
+        return (i)
+     }
+  }
+}
+# Inversive Congruential Generator 
+ICG <- function(n, a0, a1, M) {
+  seed <- 1
+  r <- rep(0, n+1)
+  r[1] <- seed 
+  for (i in 2:(n+1)) {
+    inv <- Inverse(r[i-1],M)
+    if (inv == 0) {
+      r[i] <- a0
+    }else {
+      r[i] <- ( a0 + a1*inv ) %% M
+    }
+  }
+  r <- r[-1]/M
+  return(r)
+}
+```
+
+```{r echo=TRUE}
+# Variables
+a0 <- 1
+a1 <- 17
+M <- 59
+n <- M + 1
+```
+
+- What is the period of this generator?
+
+Since the maximum period for the ICG is equal to the modulus $P_{max}=M$, we generate a vector of pseudo-random number of length $n=M+1$ in order to
+properly calculate the period.
+```{r echo=TRUE}
+# Calculate the period of the ICG
+u <- ICG(n,a0,a1,M)
+print(u)
+p <- period(u)
+```
+The period turns out to be $P=$ `r p`, that is the maximum value possible.
+
+- Plot the consecutive pairs $(u_i, u_{i+1})$ where $u_i = x_i/59$.  
+
+```{r echo=TRUE}
+# Plot      
+plot(u[-n], u[-1], xlab="u[t]", ylab="u[t+1]", main="a0=1, a1=17, M=59")
+```
