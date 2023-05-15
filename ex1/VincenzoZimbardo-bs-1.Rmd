@@ -14,7 +14,7 @@ u_i & = x_i / M
 and when $a_0=0$ yields the Multiplicative Congruential Generator (MCG). Marsaglia showed that the consecutive tuples $(u_i, \ldots, u_{i+k-1})$ from an MCG have a lattice structure.
 
 
-Consider two MCG, with multipliers $a_1=33$ and $a_2=44$ respectively, both with modulo $M=59$.
+Consider two MCGs, with multipliers $a_1=33$ and $a_2=44$ respectively, both with modulo $M=59$.
 
 ```{r echo=TRUE}  
 # Multiplicative Congruential Generator 
