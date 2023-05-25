@@ -2,6 +2,7 @@
 title: Homework 1 - Bayesian Statistics 2023
 author: Vincenzo Zimbardo 
 output: html_document
+bibliography: references.bib
 ---
 
 # Exercise 1: Estimating a log-odds with a normal prior
@@ -21,6 +22,10 @@ More concretely, suppose we are interested in learning about the probability tha
 - In all above cases construct a $95\%$ probability interval.
 
 
+```{r echo=FALSE}  
+# Initial seed
+set.seed(12345)
+```
 ```{r echo=TRUE}  
 # Parameters
 mu <- 0
@@ -43,8 +48,8 @@ PriorKernel <- function(theta){
 # Prior normalization
 Z <- sqrt(2*pi*sigma^2)
 # Sample from prior
-PriorSample <- function(){
-    x <- rnorm(1,mu,sigma)
+PriorSample <- function(n=1){
+    x <- rnorm(n,mu,sigma)
     return (x)
 }
 ```
@@ -102,32 +107,95 @@ alpha <- prob[count]
 
 # plot
 par(mfrow = c(1, 2))
-plot(x,y, type="l")
-hist(x_ar)
+plot(x,y, type="l", ylab="Posterior kernel")
+hist(x_ar, main="")
 ```
 ```{r echo=FALSE}
+# Restore default plot options
 par(mfrow = c(1, 1))
 ```
 
-The estimated probability using the random sample generated with the accept-reject algorithm is $\mathbb{P}(\theta>0)=$ `r alpha`,
+The estimated probability using the random sample generated with the accept-reject algorithm is $\mathbb{P}(\theta>0)=$ `r round(alpha,4)`,
 and it is calculated with a sample of $n=$ `r length(x_ar)`
 
-Add how n was choosed
+The stopping criterion for choosing the sample size was to keep generating random samples until the estimator $\hat{\sigma}_{\alpha}$ went below a pre-determined treshold.
 
 ```{r echo=FALSE}
-plot(seq(1,count,1),varest, pch="*", cex=0.5)
+# Plot of the estimator of the variance of the estimator as a function of the sample size
+plot(seq(1,count,1),varest, pch="*", cex=0.5, xlab="n", ylab=expression(hat(sigma)[alpha]))
 ```
 
 Now we can construct a $95\%$ confidence interval as follows:
 \begin{align}
     I_{0.95} : \left[ \hat{\alpha}-z_{0.025}\sqrt{\hat{\sigma}_{\alpha} / n} ; \hat{\alpha}+z_{0.025}\sqrt{\hat{\sigma}_{\alpha} / n} \right]
 \end{align}
-It turn out to be:
-```{r echo=TRUE}
-print(paste0("Confidence interval of phi: [",round(alpha+qnorm(0.025)*sqrt(varest[count]),4), ", ", round(alpha+qnorm(0.975)*sqrt(varest[count]),4), "]"))
+where $z_{1-\alpha}$ are the quantile of the standard normal distribution.
+It turns out to be:
+```{r echo=FALSE}
+print(paste0("Confidence interval [", round(alpha+qnorm(0.025)*sqrt(varest[count]),4), ",", round(alpha+qnorm(0.975)*sqrt(varest[count]),4), "]"))
 ```
 
 ## Sampling from the posterior distribution: Sampling Importance Resampling (SIR) algorithm
+The SIR algorithm consists in the following steps:
+
+1. Generate a set of samples from the proposal distribution
+2. Calculate the importance weights
+3. Normalize the importance weights so that they sum to 1
+4. Perform resampling (with replacement) based on the normalized importance weights
+5. Update and Repeat
+
+```{r echo=TRUE}
+# Generate a sample from the proposal distribution
+M <- 10000
+theta <- PriorSample(M)
+# Calculate and normalize weights
+w <- PosteriorKernel(theta) / PriorKernel(theta)
+w <- w / length(w)
+# Perform resampling
+m <- 2000
+resample <- function(theta, w) {
+  indices <- sample(1:M, size = m, replace = TRUE, prob = w)
+  return(theta[indices])
+}
+theta <- resample(theta, w)
+alpha <- length(theta[theta > 0]) / length(theta)
+sigma_alpha <- alpha*(1-alpha) / length(theta)
+# plot
+par(mfrow = c(1, 2))
+plot(x,y, type="l", ylab="Posterior kernel")
+hist(theta, main="")
+```
+```{r echo=FALSE}
+# Restore default plot options
+par(mfrow = c(1, 1))
+```
+The estimated probability using the random sample generated with the SIR algorithm is $\mathbb{P}(\theta>0)=$ `r round(alpha,4)`
+
+Now we can construct a $95\%$ confidence interval as follows:
+```{r echo=FALSE}
+print(paste0("Confidence interval [", round(alpha+qnorm(0.025)*sqrt(sigma_alpha),4), ",", round(alpha+qnorm(0.975)*sqrt(sigma_alpha),4), "]"))
+```
+
+For the SIR algorithm I used the following references: @10.2307/24307704, @doi:10.1080/01621459.1987.10478461
+
+## Laplace approximation
+First of all, we need the mode of the posterior. It is the also the mode of the log posterior $ln g(\theta \vert y)$
+```{r echo=TRUE}
+laplace <- optim(par=0.0, fn= function (x) log(PosteriorKernel(x)), method = "BFGS",  control=list(fnscale=-1), hessian = TRUE)
+# Find the mode
+mode <- laplace$par
+# Find the variance
+var <- -1 / (laplace$hessian)
+# Normal approximation
+alpha <- pnorm(0, mean=mode, sd=sqrt(var), lower.tail=FALSE)
+```
+We get the following results
+```{r echo=FALSE}
+# Probability that the coin is biased toward heads
+print(paste0("Probability that the coin is biased toward heads: ", round(alpha,4)))
+# Confidence interval
+print(paste0("Confidence interval of theta: [",round(alpha+qnorm(0.025)*sqrt(var),4), ", ", round(alpha+qnorm(0.975)*sqrt(var),4), "]"))
+```
 
 #  Exercise 2: Genetic linkage model
   
@@ -189,3 +257,41 @@ $$
 - Suppose we are interested in estimating the posterior mean and standard deviation for the slope $\beta_1$. Approximate these moments by a normal approximation about the posterior mode.
 - Use a multivariate $t$ proposal density and the SIR algorithm to simulate 1000 draws from the posterior density. Use this sample to estimate the posterior mean and standard deviation of the slope $\beta_1$.
 - Compare your estimates with the estimates using the normal approximation.
+
+# Exercise 4:  Variance components model
+
+Consider the data concerning batch-to-batch variation in yields of dyestuff. The following data arise from a balanced experiment whereby the total product yield was determined for five samples from each of six randomly chosen batches of raw material.
+
+```{r echo=FALSE}  
+x <- c(1545, 1440, 1440, 1520, 1580, 1540, 1555, 1490, 1560, 1495, 1595, 1550, 1605, 1510, 1560, 1445, 1440, 1595, 1465, 1545, 1595, 1630, 1515, 1635, 1625, 1520, 1455, 1450, 1480, 1445)
+x <- matrix(x, ncol=5, byrow=TRUE)
+dimnames(x) <- list(1:6, paste0("S", 1:5))  
+kable(x, row.names=TRUE)      
+```
+
+Let $y_{ij}$ denote the $j$th observation in batch $i$. To determine the relative importance of between-batch variation versus sampling variation, the following multilevel model is applied ($N$ denotes the number of batches and $n$ denotes the number of observations per batch).
+
+- $y_{ij} \sim N(\mu + b_i, \sigma_y)$, $i=1,\ldots,N$, $j=1,\ldots,n$.
+- $b_i \sim N(0, \sigma_b)$, $i=1,\ldots,N$.
+- $(\sigma^2_y, \sigma^2_b)$ is assigned a uniform prior.
+
+In this situation, the focus is on the marginal posterior distribution of the variance components. It is possible to analytically integrate out the random effects $b_i$s, resulting in the marginal posterior density of $(\mu, \sigma^2_y, \sigma^2_b)$ given, up to a proportionally constant, by
+
+$$
+\prod_{i=1}^N \left[ \phi\left( \bar{y}_i  \vert  \mu, \sqrt{\sigma^2_y/n + \sigma^2_b} \right) f_G\left( S_i  \vert  (n-1)/2, 1/(2 \sigma^2_y) \right) \right] \ , 
+$$
+
+where $\hat{y}_i$ and $S_i$ are respectively the mean yield and the "within sum of squares" of the $i$th batch, $\phi\left(y  \vert  \mu,\sigma\right)$ is the normal density of mean $\mu$ and standard deviation $\sigma$, and $f_G(y  \vert  a,b)$ is the gamma density proportional to $y^{a-1} \exp( - b y)$.
+
+- Write an R function for the log of the posterior density with parametrization $\theta = (\mu, \log\sigma_y, \log\sigma_b)$.
+- Using a normal approximation, to this aim,
+   - find the posterior mode of $\theta$ using a numerical method and try the following alternative starting values
+     - $\theta=(1500, 3, 3)$
+     - $\theta=(1500, 1, 1)$
+     - $\theta=(1500, 10, 10)$
+  
+     and assess the sensitivity of the numerical method to the starting value.
+- Use the normal approximation to find $90\%$ interval estimates for the log of the standard deviation $\log\sigma_y$, $\log\sigma_b$.
+- Using the results from the previous point find $90\%$ interval estimates for the variance components $\sigma_y^2$, $\sigma_b^2$.
+
+# References
