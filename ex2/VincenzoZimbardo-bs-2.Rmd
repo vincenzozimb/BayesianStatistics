@@ -41,7 +41,7 @@ PosteriorKernel <- function(theta){
     return (ker)
 }  
 # Prior kernel as a proposal distribution
-Proposal <- function(theta){
+ProposalKernel <- function(theta){
     ker <- exp(-(theta-mu)^2/(2*sigma^2))
     return (ker)
 }
@@ -72,13 +72,13 @@ and therefore we have also the associate plug-in estimator for the variance of t
 It is worth noting that in this case there is no need to calculate the normalization constant of the posterior, $Z_g$,
 in order to implement the accept-reject algorithm, thanks to a simplification.
 ```{r echo=TRUE}
-# Accept-reject algorithm. K = M Z_g / Z_f, where M is the ratio bound in accept-reject algorithm 
+# Accept-reject algorithm. K = M * Z_target / Z_proposal, where M is the ratio bound in accept-reject algorithm.
 AccRej <- function(n, K){
     samples <- c()
     while(length(samples) < n){
         x <- PriorSample()
         u <- runif(1)
-        if(u*K < PosteriorKernel(x) / Proposal(x)){
+        if(u*K < PosteriorKernel(x) / ProposalKernel(x)){
             samples <- c(samples, x)
         }
   }
@@ -149,10 +149,10 @@ The SIR algorithm consists in the following steps:
 M <- 10000
 theta <- PriorSample(M)
 # Calculate and normalize weights
-w <- PosteriorKernel(theta) / Proposal(theta)
+w <- PosteriorKernel(theta) / ProposalKernel(theta)
 w <- w / length(w)
 # Perform resampling
-m <- 2000
+m <- 2000 # modify it?
 resample <- function(theta, w) {
   indices <- sample(1:M, size = m, replace = TRUE, prob = w)
   return(theta[indices])
@@ -247,7 +247,7 @@ The calculation yields:
 \end{align}
 The log-posterior is, up to an additive constant:
 \begin{align}
-    \ln h(\eta) = 125\ln(2+3e^\eta) + 35\eta -199 \ln(1+e^\eta)
+    \ln h(\eta \vert \text{data}) = 125\ln(2+3e^\eta) + 35\eta -199 \ln(1+e^\eta)
 \end{align}
 
 ```{r echo=TRUE}
@@ -272,10 +272,18 @@ mode <- laplace$par
 # Find the variance
 var <- -1 / (laplace$hessian)
 ```
+
+The estimated mean value and standard deviation from the Poisson approaximation are
+```{r echo=FALSE}
+print(paste0("Mean value: ", round(mode,4)))
+print(paste0("Standard deviation: ", round(sqrt(var),4)))
+```
+
 A $95\%$ confidence interval for $\eta$ is
 ```{r echo=FALSE}
 print(paste0("Confidence interval [", round(mode+qnorm(0.025)*sqrt(var),4), ",", round(mode+qnorm(0.975)*sqrt(var),4), "]"))
 ```
+
 In order to find a $95\%$ confidence interval for $\theta$ we need to perform the change of variable
 ```{r echo=TRUE}
 
@@ -286,8 +294,14 @@ In order to find a $95\%$ confidence interval for $\theta$ we need to perform th
 library(mnormt)
 dof = 3
 # Proposal distrubution
-Proposal <- function(x, df = dof, mu = mode, s = sqrt(var)){
-  return(dmt(x, mean=mu, S=s, df = df))
+Proposal <- function(x){
+  return(dmt(x, mean=mode, S=sqrt(var), df = dof))
+}
+# Proposal normalization
+Z_prop <- gamma(dof/2) * sqrt(pi*dof*var) / gamma((dof+1)/2) 
+# Proposal kernel
+ProposalKernel <- function(x){
+    return( Proposal(x) * Z_prop )
 }
 # Sample from proposal
 ProposalSample <- function(n=1){
@@ -310,10 +324,14 @@ par(mfrow = c(1, 1))
 ```
 
 Now sample from the posterior $h(\eta)$ using the accept-reject algorithm, in a similar way as did in Exercise 1,
-but in this case 
+but in this case we need to calculate the ratio bound
 ```{r echo=TRUE}
-# Sample from from the posterior using the acc-rej algorithm
-treshold <- 1e-4
+# Sample from from the posterior using the acc-rej algorithm.
+optim <- optim(par=0.0, fn= function (x) PosteriorKernel(x) / Proposal(x), method = "BFGS",  control=list(fnscale=-1))
+K <- optim$value
+K <- K / Z_prop
+
+treshold <- 1e-8
 x_ar <- c()
 varest <- c()
 count <- 0
@@ -321,16 +339,31 @@ min <- 10
 
 repeat{
     count <- count + 1
-    x_ar <- c(x_ar, AccRej(1, K=1))
-    prob <- c(prob, length(x_ar[x_ar > 0]) / length(x_ar))
-    varest <- c(varest, prob[count] * (1 - prob[count]) / length(x_ar))
-    if(varest[count] < treshold && count > min){
+    x_ar <- c(x_ar, AccRej(1, K))
+    varest <- c(varest, sd(x_ar))
+    if(abs(varest[count]-varest[count-1]) < treshold && count > min){
         break
     }
 }
-alpha <- prob[count]
+```
+```{r echo=FALSE, warning=FALSE}
+# plot
+x <- seq(-0.5, 1.5, length.out = 100)
+y <- PosteriorKernel(x)
+par(mfrow = c(1, 3))
+plot(x,y, type="l", ylab="Posterior kernel", yaxt="n")
+y <- Proposal(x)
+plot(x,y, type="l", ylab="Proposal t")
+hist(x_ar, main="")
+# Restore default plot options
+par(mfrow = c(1, 1))
 ```
 
+The estimated mean value and standard deviation from the sample (of dimension $n=$ `r length(x_ar)`) are
+```{r echo=FALSE}
+print(paste0("Mean value: ", round(mean(x_ar),4)))
+print(paste0("Standard deviation: ", round(varest[count],4)))
+```
 
 <!-- ----------------------------------------------------------------------------------------------------------------------------------------------- -->
 
