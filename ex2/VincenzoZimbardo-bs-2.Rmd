@@ -1,5 +1,5 @@
 ---
-title: Homework 1 - Bayesian Statistics 2023
+title: Homework 2 - Bayesian Statistics 2023
 author: Vincenzo Zimbardo 
 output: html_document
 bibliography: references.bib
@@ -40,8 +40,8 @@ PosteriorKernel <- function(theta){
     ker <- ker * exp(-(theta-mu)^2/(2*sigma^2))
     return (ker)
 }  
-# Prior kernel
-PriorKernel <- function(theta){
+# Prior kernel as a proposal distribution
+Proposal <- function(theta){
     ker <- exp(-(theta-mu)^2/(2*sigma^2))
     return (ker)
 }
@@ -69,6 +69,8 @@ By direct calculation it is obtained that $\hat{\alpha}$ is an unbiased estimato
 and therefore we have also the associate plug-in estimator for the variance of the estimator. Let's call it $\hat{\sigma}_{\alpha}$
 
 ## Sampling from the posterior distribution: accept-reject algorithm
+It is worth noting that in this case there is no need to calculate the normalization constant of the posterior, $Z_g$,
+in order to implement the accept-reject algorithm, thanks to a simplification.
 ```{r echo=TRUE}
 # Accept-reject algorithm. K = M Z_g / Z_f, where M is the ratio bound in accept-reject algorithm 
 AccRej <- function(n, K){
@@ -76,7 +78,7 @@ AccRej <- function(n, K){
     while(length(samples) < n){
         x <- PriorSample()
         u <- runif(1)
-        if(u*K < PosteriorKernel(x) / PriorKernel(x)){
+        if(u*K < PosteriorKernel(x) / Proposal(x)){
             samples <- c(samples, x)
         }
   }
@@ -104,13 +106,12 @@ repeat{
     }
 }
 alpha <- prob[count]
-
-# plot
-par(mfrow = c(1, 2))
-plot(x,y, type="l", ylab="Posterior kernel")
-hist(x_ar, main="")
 ```
 ```{r echo=FALSE}
+# plot
+par(mfrow = c(1, 2))
+plot(x,y, type="l", xlab=expression(theta), ylab="Posterior kernel", yaxt='n')
+hist(x_ar, main="", xlab=expression(theta))
 # Restore default plot options
 par(mfrow = c(1, 1))
 ```
@@ -142,14 +143,13 @@ The SIR algorithm consists in the following steps:
 2. Calculate the importance weights
 3. Normalize the importance weights so that they sum to 1
 4. Perform resampling (with replacement) based on the normalized importance weights
-5. Update and Repeat
 
 ```{r echo=TRUE}
 # Generate a sample from the proposal distribution
 M <- 10000
 theta <- PriorSample(M)
 # Calculate and normalize weights
-w <- PosteriorKernel(theta) / PriorKernel(theta)
+w <- PosteriorKernel(theta) / Proposal(theta)
 w <- w / length(w)
 # Perform resampling
 m <- 2000
@@ -160,15 +160,16 @@ resample <- function(theta, w) {
 theta <- resample(theta, w)
 alpha <- length(theta[theta > 0]) / length(theta)
 sigma_alpha <- alpha*(1-alpha) / length(theta)
-# plot
-par(mfrow = c(1, 2))
-plot(x,y, type="l", ylab="Posterior kernel")
-hist(theta, main="")
 ```
 ```{r echo=FALSE}
+# plot
+par(mfrow = c(1, 2))
+plot(x,y, type="l", xlab=expression(theta), ylab="Posterior kernel", yaxt='n')
+hist(theta, xlab=expression(theta), main="")
 # Restore default plot options
 par(mfrow = c(1, 1))
 ```
+
 The estimated probability using the random sample generated with the SIR algorithm is $\mathbb{P}(\theta>0)=$ `r round(alpha,4)`
 
 Now we can construct a $95\%$ confidence interval as follows:
@@ -189,13 +190,14 @@ var <- -1 / (laplace$hessian)
 # Normal approximation
 alpha <- pnorm(0, mean=mode, sd=sqrt(var), lower.tail=FALSE)
 ```
-We get the following results
+We get the following result:
 ```{r echo=FALSE}
 # Probability that the coin is biased toward heads
 print(paste0("Probability that the coin is biased toward heads: ", round(alpha,4)))
-# Confidence interval
-print(paste0("Confidence interval of theta: [",round(alpha+qnorm(0.025)*sqrt(var),4), ", ", round(alpha+qnorm(0.975)*sqrt(var),4), "]"))
 ```
+Justify the stuff about the confidence interval?
+
+<!-- ----------------------------------------------------------------------------------------------------------------------------------------------- -->
 
 #  Exercise 2: Genetic linkage model
   
@@ -229,6 +231,109 @@ where $0 < \theta < 1$.
 - Design an Accept-Reject sampling algorithm for simulating from the posterior density $\eta$. Use a $t$ proposal density using a small number of degrees of freedom and mean and scale parameters given by the normal approximation.
 - Compare the results of the two procedures.
 
+## Change of variable 
+
+The posterior density as a function of $\eta$ is obtained by
+\begin{align}
+    h(\eta \vert \text{data}) \propto h(\theta \vert \text{data})\Bigg|_{\theta = \theta(\eta)} \Bigg| \frac{d\theta}{d\eta} \Bigg|
+\end{align}
+Using the fact that
+\begin{align}
+    \theta &= \frac{e^\eta}{1+e^\eta} & \frac{d\theta}{d\eta} &= \frac{d\theta}{d e^{\eta}} \frac{d e^{\eta}}{d\eta}
+\end{align}
+The calculation yields:
+\begin{align}
+    h(\eta \vert \text{data}) \propto \frac{(2+3e^\eta)^{125} e^{35\eta}}{(1+e^\eta)^{199}}
+\end{align}
+The log-posterior is, up to an additive constant:
+\begin{align}
+    \ln h(\eta) = 125\ln(2+3e^\eta) + 35\eta -199 \ln(1+e^\eta)
+\end{align}
+
+```{r echo=TRUE}
+# posterior kernel
+PosteriorKernel <- function(eta){
+    ker <- (2 + 3*exp(eta))^(125) * exp(35*eta) / (1 + exp(eta))^(199)
+    return (ker)
+}  
+```
+```{r echo=FALSE}
+# plot
+x <- seq(-1, 2, length.out = 100)
+y <- PosteriorKernel(x)
+plot(x,y, type="l", xlab=expression(eta), ylab="Posterior kernel", yaxt='n')
+```
+
+## Laplace approximation
+```{r echo=TRUE}
+laplace <- optim(par=0.0, fn= function (x) log(PosteriorKernel(x)), method = "BFGS",  control=list(fnscale=-1), hessian = TRUE)
+# Find the mode
+mode <- laplace$par
+# Find the variance
+var <- -1 / (laplace$hessian)
+```
+A $95\%$ confidence interval for $\eta$ is
+```{r echo=FALSE}
+print(paste0("Confidence interval [", round(mode+qnorm(0.025)*sqrt(var),4), ",", round(mode+qnorm(0.975)*sqrt(var),4), "]"))
+```
+In order to find a $95\%$ confidence interval for $\theta$ we need to perform the change of variable
+```{r echo=TRUE}
+
+```
+
+## Accept-Reject algorithm using a t-distribution as a proposal
+```{r echo=TRUE, warning=FALSE}  
+library(mnormt)
+dof = 3
+# Proposal distrubution
+Proposal <- function(x, df = dof, mu = mode, s = sqrt(var)){
+  return(dmt(x, mean=mu, S=s, df = df))
+}
+# Sample from proposal
+ProposalSample <- function(n=1){
+    x <- rmt(n, mode, sqrt(var), dof)
+    return (x)
+}
+```
+
+In the following the proposal distribution and a sample from it is shown (inserire label)
+```{r echo=FALSE, warning=FALSE}
+# plot
+x <- seq(-2, 2, length.out = 100)
+y <- Proposal(x)
+par(mfrow = c(1, 2))
+plot(x,y, type="l", ylab="Proposal t")
+sample <- ProposalSample(10000)
+hist(sample, main="")
+# Restore default plot options
+par(mfrow = c(1, 1))
+```
+
+Now sample from the posterior $h(\eta)$ using the accept-reject algorithm, in a similar way as did in Exercise 1,
+but in this case 
+```{r echo=TRUE}
+# Sample from from the posterior using the acc-rej algorithm
+treshold <- 1e-4
+x_ar <- c()
+varest <- c()
+count <- 0
+min <- 10
+
+repeat{
+    count <- count + 1
+    x_ar <- c(x_ar, AccRej(1, K=1))
+    prob <- c(prob, length(x_ar[x_ar > 0]) / length(x_ar))
+    varest <- c(varest, prob[count] * (1 - prob[count]) / length(x_ar))
+    if(varest[count] < treshold && count > min){
+        break
+    }
+}
+alpha <- prob[count]
+```
+
+
+<!-- ----------------------------------------------------------------------------------------------------------------------------------------------- -->
+
 # Exercise 3: Poisson Regression
 
 Consider an experiment involving subjects reporting one stressful event. The collected data $y_{1}, \cdots, y_{18}$ where $y_{i}$ is the number of events recalled $i$ months before the interview. Suppose $y_i$ is Poisson distributed with mean $\lambda_i$, where the $\lambda_i$s satisfy the loglinear regression model
@@ -257,6 +362,9 @@ $$
 - Suppose we are interested in estimating the posterior mean and standard deviation for the slope $\beta_1$. Approximate these moments by a normal approximation about the posterior mode.
 - Use a multivariate $t$ proposal density and the SIR algorithm to simulate 1000 draws from the posterior density. Use this sample to estimate the posterior mean and standard deviation of the slope $\beta_1$.
 - Compare your estimates with the estimates using the normal approximation.
+
+
+<!-- ----------------------------------------------------------------------------------------------------------------------------------------------- -->
 
 # Exercise 4:  Variance components model
 
@@ -293,5 +401,8 @@ where $\hat{y}_i$ and $S_i$ are respectively the mean yield and the "within sum 
      and assess the sensitivity of the numerical method to the starting value.
 - Use the normal approximation to find $90\%$ interval estimates for the log of the standard deviation $\log\sigma_y$, $\log\sigma_b$.
 - Using the results from the previous point find $90\%$ interval estimates for the variance components $\sigma_y^2$, $\sigma_b^2$.
+
+
+<!-- ----------------------------------------------------------------------------------------------------------------------------------------------- -->
 
 # References
