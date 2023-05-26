@@ -47,8 +47,8 @@ ProposalKernel <- function(theta){
 }
 # Prior normalization
 Z <- sqrt(2*pi*sigma^2)
-# Sample from prior
-PriorSample <- function(n=1){
+# Sample from proposal
+ProposalSample <- function(n=1){
     x <- rnorm(n,mu,sigma)
     return (x)
 }
@@ -76,7 +76,7 @@ in order to implement the accept-reject algorithm, thanks to a simplification.
 AccRej <- function(n, K){
     samples <- c()
     while(length(samples) < n){
-        x <- PriorSample()
+        x <- ProposalSample()
         u <- runif(1)
         if(u*K < PosteriorKernel(x) / ProposalKernel(x)){
             samples <- c(samples, x)
@@ -147,12 +147,12 @@ The SIR algorithm consists in the following steps:
 ```{r echo=TRUE}
 # Generate a sample from the proposal distribution
 M <- 10000
-theta <- PriorSample(M)
+theta <- ProposalSample(M)
 # Calculate and normalize weights
 w <- PosteriorKernel(theta) / ProposalKernel(theta)
 w <- w / length(w)
 # Perform resampling
-m <- 2000 # modify it?
+m <- 2000
 resample <- function(theta, w) {
   indices <- sample(1:M, size = m, replace = TRUE, prob = w)
   return(theta[indices])
@@ -180,7 +180,7 @@ print(paste0("Confidence interval [", round(alpha+qnorm(0.025)*sqrt(sigma_alpha)
 For the SIR algorithm I used the following references: @10.2307/24307704, @doi:10.1080/01621459.1987.10478461
 
 ## Laplace approximation
-First of all, we need the mode of the posterior. It is the also the mode of the log posterior $ln g(\theta \vert y)$
+First of all, we need the mode of the posterior. It is the also the mode of the log posterior $\log g(\theta \vert y)$
 ```{r echo=TRUE}
 laplace <- optim(par=0.0, fn= function (x) log(PosteriorKernel(x)), method = "BFGS",  control=list(fnscale=-1), hessian = TRUE)
 # Find the mode
@@ -197,6 +197,12 @@ print(paste0("Probability that the coin is biased toward heads: ", round(alpha,4
 ```
 Justify the stuff about the confidence interval?
 
+```{r echo=FALSE}
+# Clear workspace exept specified objects
+rm(list=ls())
+#rm(list=setdiff(ls(), "AccRej"))
+```
+
 <!-- ----------------------------------------------------------------------------------------------------------------------------------------------- -->
 
 #  Exercise 2: Genetic linkage model
@@ -209,7 +215,7 @@ x <- 1:4
 y <- c(125,18,20,34)  
 d <- data.frame(x,y)
 names(d) <- c("Category", "Frequency")
-kable(d)  
+kable(d)
 ```
 
 Assume that the probabilities of the four categories are given by the vector
@@ -251,17 +257,17 @@ The log-posterior is, up to an additive constant:
 \end{align}
 
 ```{r echo=TRUE}
-# posterior kernel
+# Posterior kernel
 PosteriorKernel <- function(eta){
-    ker <- (2 + 3*exp(eta))^(125) * exp(35*eta) / (1 + exp(eta))^(199)
-    return (ker)
+    ker <- 125*log(2+3*exp(eta)) + 35*eta -199*log(1+exp(eta)) - 197*log(4)
+    return (exp(ker))
+}
+# Posterior normalization
+Z_post <- integrate(function(x) (PosteriorKernel(x)), -Inf, Inf)$value
+# Posterior density
+Posterior <- function(x){
+    return ( PosteriorKernel(x) / Z_post )
 }  
-```
-```{r echo=FALSE}
-# plot
-x <- seq(-1, 2, length.out = 100)
-y <- PosteriorKernel(x)
-plot(x,y, type="l", xlab=expression(eta), ylab="Posterior kernel", yaxt='n')
 ```
 
 ## Laplace approximation
@@ -273,7 +279,17 @@ mode <- laplace$par
 var <- -1 / (laplace$hessian)
 ```
 
-The estimated mean value and standard deviation from the Poisson approaximation are
+```{r echo=FALSE}
+# plot
+x <- seq(-2, 2, length.out = 100)
+y <- Posterior(x)
+plot(x,y, type="l", lwd="1", col="black", xlab=expression(eta), ylab="Posterior density")
+y <- dnorm(x,mode,sqrt(var))
+points(x,y, col="red")
+legend( "topleft", legend=c( "Posterior density", "Laplace approximation"), col=c("black", "red"), lty=c(1,2))
+```
+
+The estimated mean value and standard deviation from the Poisson approximation are
 ```{r echo=FALSE}
 print(paste0("Mean value: ", round(mode,4)))
 print(paste0("Standard deviation: ", round(sqrt(var),4)))
@@ -281,12 +297,19 @@ print(paste0("Standard deviation: ", round(sqrt(var),4)))
 
 A $95\%$ confidence interval for $\eta$ is
 ```{r echo=FALSE}
-print(paste0("Confidence interval [", round(mode+qnorm(0.025)*sqrt(var),4), ",", round(mode+qnorm(0.975)*sqrt(var),4), "]"))
+low_eta <- round(mode+qnorm(0.025)*sqrt(var),4)
+high_eta <- round(mode+qnorm(0.975)*sqrt(var),4)
+CI_la <- c("Confidence interval", "[", low_eta, ",", high_eta, "]")
+print(paste0(CI_la, collapse=""))
+CI_la <- CI_la[-1]
 ```
 
 In order to find a $95\%$ confidence interval for $\theta$ we need to perform the change of variable
-```{r echo=TRUE}
-
+```{r echo=FALSE}
+low_theta <- round(exp(low_eta) / (1 + exp(low_eta)),4)
+high_theta <- round(exp(high_eta) / (1 + exp(high_eta)),4)
+CI_la_theta <- c("Confidence interval", "[", low_theta, ",", high_theta, "]")
+print(paste0(CI_la_theta, collapse=""))
 ```
 
 ## Accept-Reject algorithm using a t-distribution as a proposal
@@ -297,12 +320,6 @@ dof = 3
 Proposal <- function(x){
   return(dmt(x, mean=mode, S=sqrt(var), df = dof))
 }
-# Proposal normalization
-Z_prop <- gamma(dof/2) * sqrt(pi*dof*var) / gamma((dof+1)/2) 
-# Proposal kernel
-ProposalKernel <- function(x){
-    return( Proposal(x) * Z_prop )
-}
 # Sample from proposal
 ProposalSample <- function(n=1){
     x <- rmt(n, mode, sqrt(var), dof)
@@ -310,27 +327,41 @@ ProposalSample <- function(n=1){
 }
 ```
 
-In the following the proposal distribution and a sample from it is shown (inserire label)
-```{r echo=FALSE, warning=FALSE}
-# plot
-x <- seq(-2, 2, length.out = 100)
-y <- Proposal(x)
-par(mfrow = c(1, 2))
-plot(x,y, type="l", ylab="Proposal t")
-sample <- ProposalSample(10000)
-hist(sample, main="")
-# Restore default plot options
-par(mfrow = c(1, 1))
-```
-
 Now sample from the posterior $h(\eta)$ using the accept-reject algorithm, in a similar way as did in Exercise 1,
 but in this case we need to calculate the ratio bound
 ```{r echo=TRUE}
 # Sample from from the posterior using the acc-rej algorithm.
-optim <- optim(par=0.0, fn= function (x) PosteriorKernel(x) / Proposal(x), method = "BFGS",  control=list(fnscale=-1))
-K <- optim$value
-K <- K / Z_prop
+optim <- optim(par=0.0, fn= function (x) Posterior(x) / Proposal(x), method = "BFGS",  control=list(fnscale=-1))
+M <- optim$value
+print(paste0(c("M=",M), collapse=""))
+```
 
+```{r echo=FALSE}
+# plot
+x <- seq(-2, 2, length.out = 100)
+y <- M * dnorm(x,mode,sqrt(var))
+plot(x,y, type="l", ylim=c(0,max(y)), xlab=expression(eta), ylab="Densities")
+y <- Posterior(x)
+lines(x,y, col="red", ylab="Posterior density")
+legend( "topleft", legend=c( "M * Proposal", "Posterior density"), col=c("black", "red"), lty=c(1,1))
+```
+
+```{r echo=TRUE}
+# Accept-reject algorithm
+AccRej <- function(n, M){
+    samples <- c()
+    while(length(samples) < n){
+        x <- ProposalSample()
+        u <- runif(1)
+        if(u*M < Posterior(x) / Proposal(x)){
+            samples <- c(samples, x)
+        }
+  }
+  return(samples)
+}
+```
+
+```{r echo=TRUE}
 treshold <- 1e-8
 x_ar <- c()
 varest <- c()
@@ -339,30 +370,59 @@ min <- 10
 
 repeat{
     count <- count + 1
-    x_ar <- c(x_ar, AccRej(1, K))
+    x_ar <- c(x_ar, AccRej(1, M))
     varest <- c(varest, sd(x_ar))
     if(abs(varest[count]-varest[count-1]) < treshold && count > min){
         break
     }
 }
+
+x_ar <- x_ar[-1]
+varest <- varest[-1]
+count <- count -1
+
+mean <- mean(x_ar)
+sdv <- varest[count]
 ```
-```{r echo=FALSE, warning=FALSE}
+
+```{r echo=FALSE}
 # plot
 x <- seq(-0.5, 1.5, length.out = 100)
-y <- PosteriorKernel(x)
-par(mfrow = c(1, 3))
-plot(x,y, type="l", ylab="Posterior kernel", yaxt="n")
-y <- Proposal(x)
-plot(x,y, type="l", ylab="Proposal t")
-hist(x_ar, main="")
-# Restore default plot options
-par(mfrow = c(1, 1))
+y <- Posterior(x)
+hist(x_ar, main="", xlab="sample", ylab="Posterior density", freq=FALSE)
+lines(x,y, type="l")
 ```
 
 The estimated mean value and standard deviation from the sample (of dimension $n=$ `r length(x_ar)`) are
+
 ```{r echo=FALSE}
-print(paste0("Mean value: ", round(mean(x_ar),4)))
-print(paste0("Standard deviation: ", round(varest[count],4)))
+print(paste0("Mean value: ", round(mean,4)))
+print(paste0("Standard deviation: ", round(sdv,4)))
+```
+
+The stopping criterion for choosing the sample size was to keep generating random samples until the sample standard deviation 
+stabilizes around a limiting value, up to variations below a predetermined treshold.
+
+A $95\%$ confidence interval is: 
+```{r echo=FALSE}
+CI_ac <- c("Confidence interval", "[", round(mean+qnorm(0.025)*sdv,4), ",", round(mean+qnorm(0.975)*sdv,4), "]")
+print(paste0(CI_ac, collapse=""))
+CI_ac <- CI_ac[-1]
+```
+
+## Comparison of the two methods
+
+Comparison for $\eta$ estimation in the following table
+
+| Parameter           | Accept-Reject sampling               |Normal approximation                  |
+|---------------------|--------------------------------------|--------------------------------------|
+| mean                | `r mean`                             | `r mode`                             |
+| standard deviation  | `r sdv`                              | `r sqrt(var)`                        |
+| confidence interval | `r paste0(CI_ac, collapse="")`       | `r paste0(CI_la, collapse="")`       |
+
+```{r echo=FALSE}
+# Clear workspace exept specified objects
+rm(list=ls())
 ```
 
 <!-- ----------------------------------------------------------------------------------------------------------------------------------------------- -->
@@ -391,11 +451,68 @@ $$
 \log(g(\beta_0, \beta_1  \vert  data)) \propto \sum_{i=1}^{18} \left[ y_i (\beta_0 + \beta_1 i ) - \exp(\beta_0 + \beta_1 i) \right]
 $$     
 
-- Write an R function to compare the log of the posterior density of $(\beta_0, \beta_1)$.
+- Write an R function to compute the log of the posterior density of $(\beta_0, \beta_1)$.
 - Suppose we are interested in estimating the posterior mean and standard deviation for the slope $\beta_1$. Approximate these moments by a normal approximation about the posterior mode.
 - Use a multivariate $t$ proposal density and the SIR algorithm to simulate 1000 draws from the posterior density. Use this sample to estimate the posterior mean and standard deviation of the slope $\beta_1$.
 - Compare your estimates with the estimates using the normal approximation.
 
+It is useful to define, given $N=$ `r length(x)`:
+\begin{align}
+    A &:= \sum_{i=1}^{N} y_i & D &:= \sum_{i=1}^{N} i~y_i
+\end{align}
+Moreover:
+\begin{equation}
+    \sum_{i=1}^{N} e^{\beta_1 i} = \frac{1-e^{(N+1)\beta_1}}{1-e^{\beta_1}} =: f(\beta_1)
+\end{equation}
+In this way we can rewrite, up to an additive constant:
+\begin{equation}
+    \log(g(\beta_0, \beta_1 \vert data)) = A\beta_0 + D\beta_1 - f(\beta_1)e^{\beta_0}
+\end{equation}
+And consequently:
+\begin{equation}
+    g(\beta_0, \beta_1 \vert data) \propto e^{A\beta_0} e^{D\beta_1} e^{-f(\beta_1) e^{\beta_0}}
+\end{equation}
+
+
+```{r echo=TRUE}
+# Constants
+N <- length(x)
+A <- sum(y)
+D <- sum(y * seq_along(y))
+# Auxiliary function
+func <- function(x){
+    res <- ( 1-exp((N+1)*x) ) / ( 1-exp(x) )
+    return (res)
+}
+# log posterior, up to the additive constant (related to the normalization)
+logPost <- function(beta0, beta1){
+    res <- A*beta0 + D*beta_1 - func(beta_1)*exp(beta_0)
+    return (res)
+}
+# Posterior kernel
+PosteriorKernel <- function(beta0, beta1){
+    return (exp(logPost(beta0, beta1)))
+}
+```
+Marginalize to find the posterior for the slope $\beta_1$
+```{r echo=TRUE}
+# Marginalize
+SlopePosteriorKernel <- function(beta1){
+  result <- integrate(function(beta0) Posterior(beta0, beta1), lower = -Inf, upper = Inf)
+  return(result$value / integralConstant)
+}
+# Normalize
+# Z_post <- integrate(function(x) (SlopePosteriorKernel(x)), -Inf, Inf)$value
+# SlopePosterior <- function(beta1){
+#     return ( SlopePosteriorKernel(beta1) / Z_post )
+# }
+```
+```{r echo=FALSE}
+# plot
+xx <- seq(-0.5, 0.5, length.out = 1000)
+yy <- sapply(xx, SlopePosteriorKernel)
+plot(xx, yy, type="l", main="Slope posterior", xlab=expression(beta[1]), ylab=expression(g[beta[1]]))
+```
 
 <!-- ----------------------------------------------------------------------------------------------------------------------------------------------- -->
 
