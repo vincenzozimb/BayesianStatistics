@@ -89,19 +89,20 @@ AccRej <- function(n, K){
 # Sample from from the posterior using the acc-rej algorithm
 x <- seq(-4*sigma,4*sigma,length.out = 100)
 y <- PosteriorKernel(x)
-treshold <- 1e-4
+threshold <- 1e-4 #1e-5
 x_ar <- c()
 prob <- c()
 varest <- c()
 count <- 0
 min <- 10
+max <- 40000
 
 repeat{
     count <- count + 1
     x_ar <- c(x_ar, AccRej(1, K=1))
     prob <- c(prob, length(x_ar[x_ar > 0]) / length(x_ar))
     varest <- c(varest, prob[count] * (1 - prob[count]) / length(x_ar))
-    if(varest[count] < treshold && count > min){
+    if( ( varest[count] < threshold && count > min ) || count >= max ){
         break
     }
 }
@@ -119,7 +120,7 @@ par(mfrow = c(1, 1))
 The estimated probability using the random sample generated with the accept-reject algorithm is $\mathbb{P}(\theta>0)=$ `r round(alpha,4)`,
 and it is calculated with a sample of $n=$ `r length(x_ar)`
 
-The stopping criterion for choosing the sample size was to keep generating random samples until the estimator $\hat{\sigma}_{\alpha}$ went below a pre-determined treshold.
+The stopping criterion for choosing the sample size was to keep generating random samples until the estimator $\hat{\sigma}_{\alpha}$ went below a pre-determined threshold.
 
 ```{r echo=FALSE}
 # Plot of the estimator of the variance of the estimator as a function of the sample size
@@ -150,7 +151,7 @@ M <- 10000
 theta <- ProposalSample(M)
 # Calculate and normalize weights
 w <- PosteriorKernel(theta) / ProposalKernel(theta)
-w <- w / length(w)
+w <- w / sum(w)
 # Perform resampling
 m <- 2000
 resample <- function(theta, w) {
@@ -333,13 +334,13 @@ but in this case we need to calculate the ratio bound
 # Sample from from the posterior using the acc-rej algorithm.
 optim <- optim(par=0.0, fn= function (x) Posterior(x) / Proposal(x), method = "BFGS",  control=list(fnscale=-1))
 M <- optim$value
-print(paste0(c("M=",M), collapse=""))
+print(paste0(c("M=", round(M,4)), collapse=""))
 ```
 
-```{r echo=FALSE}
+```{r echo=FALSE, warning=FALSE}
 # plot
 x <- seq(-2, 2, length.out = 100)
-y <- M * dnorm(x,mode,sqrt(var))
+y <- M * dmt(x,mode,sqrt(var),dof)
 plot(x,y, type="l", ylim=c(0,max(y)), xlab=expression(eta), ylab="Densities")
 y <- Posterior(x)
 lines(x,y, col="red", ylab="Posterior density")
@@ -362,7 +363,7 @@ AccRej <- function(n, M){
 ```
 
 ```{r echo=TRUE}
-treshold <- 1e-8
+threshold <- 1e-8
 x_ar <- c()
 varest <- c()
 count <- 0
@@ -372,7 +373,7 @@ repeat{
     count <- count + 1
     x_ar <- c(x_ar, AccRej(1, M))
     varest <- c(varest, sd(x_ar))
-    if(abs(varest[count]-varest[count-1]) < treshold && count > min){
+    if(abs(varest[count]-varest[count-1]) < threshold && count > min){
         break
     }
 }
@@ -401,7 +402,7 @@ print(paste0("Standard deviation: ", round(sdv,4)))
 ```
 
 The stopping criterion for choosing the sample size was to keep generating random samples until the sample standard deviation 
-stabilizes around a limiting value, up to variations below a predetermined treshold.
+stabilizes around a limiting value, up to variations below a predetermined threshold.
 
 A $95\%$ confidence interval is: 
 ```{r echo=FALSE}
@@ -420,6 +421,7 @@ Comparison for $\eta$ estimation in the following table
 | standard deviation  | `r sdv`                              | `r sqrt(var)`                        |
 | confidence interval | `r paste0(CI_ac, collapse="")`       | `r paste0(CI_la, collapse="")`       |
 
+Insert also result for $\theta$?
 ```{r echo=FALSE}
 # Clear workspace exept specified objects
 rm(list=ls())
@@ -456,13 +458,16 @@ $$
 - Use a multivariate $t$ proposal density and the SIR algorithm to simulate 1000 draws from the posterior density. Use this sample to estimate the posterior mean and standard deviation of the slope $\beta_1$.
 - Compare your estimates with the estimates using the normal approximation.
 
+
+## Write an R function to compute the posterior log density
+
 It is useful to define, given $N=$ `r length(x)`:
 \begin{align}
     A &:= \sum_{i=1}^{N} y_i & D &:= \sum_{i=1}^{N} i~y_i
 \end{align}
 Moreover:
 \begin{equation}
-    \sum_{i=1}^{N} e^{\beta_1 i} = \frac{1-e^{(N+1)\beta_1}}{1-e^{\beta_1}} =: f(\beta_1)
+    f(\beta_1) := \sum_{i=1}^{N} e^{\beta_1 i}
 \end{equation}
 In this way we can rewrite, up to an additive constant:
 \begin{equation}
@@ -480,40 +485,98 @@ N <- length(x)
 A <- sum(y)
 D <- sum(y * seq_along(y))
 # Auxiliary function
-func <- function(x){
-    res <- ( 1-exp((N+1)*x) ) / ( 1-exp(x) )
+func <- function(beta1){
+    res <- sum(exp(beta1*x))
     return (res)
 }
 # log posterior, up to the additive constant (related to the normalization)
-logPost <- function(beta0, beta1){
-    res <- A*beta0 + D*beta_1 - func(beta_1)*exp(beta_0)
+logPost <- function(beta){
+    beta0 <- beta[1]
+    beta1 <- beta[2]
+    res <- A*beta0 + D*beta1 - func(beta1)*exp(beta0)
     return (res)
 }
 # Posterior kernel
-PosteriorKernel <- function(beta0, beta1){
-    return (exp(logPost(beta0, beta1)))
+PosteriorKernel <- function(beta){
+    return (exp(logPost(beta)))
 }
-```
-Marginalize to find the posterior for the slope $\beta_1$
-```{r echo=TRUE}
-# Marginalize
-SlopePosteriorKernel <- function(beta1){
-  result <- integrate(function(beta0) Posterior(beta0, beta1), lower = -Inf, upper = Inf)
-  return(result$value / integralConstant)
-}
-# Normalize
-# Z_post <- integrate(function(x) (SlopePosteriorKernel(x)), -Inf, Inf)$value
-# SlopePosterior <- function(beta1){
-#     return ( SlopePosteriorKernel(beta1) / Z_post )
-# }
-```
-```{r echo=FALSE}
-# plot
-xx <- seq(-0.5, 0.5, length.out = 1000)
-yy <- sapply(xx, SlopePosteriorKernel)
-plot(xx, yy, type="l", main="Slope posterior", xlab=expression(beta[1]), ylab=expression(g[beta[1]]))
 ```
 
+## Laplace's approximation
+
+Find the mode in order to procede with the Laplace's approximation
+
+```{r echo=TRUE}
+laplace <- optim(par=c(0, -0.5), fn = logPost, control=list(fnscale=-1), method = "Nelder-Mead", hessian = TRUE)
+# Find the mode
+mode <- laplace$par
+# Find the variance
+Sigma <- -solve(laplace$hessian)
+var <- Sigma[2,2]
+```
+The mean and the standard deviation are then:
+```{r echo=FALSE}
+print(paste0("Mean value: ", round(mode[2],4)))
+print(paste0("Standard deviation: ", round(sqrt(var),4)))
+```
+
+## SIR algorithm with t proposal density
+
+```{r echo=TRUE}
+library(mvtnorm)
+dof <- 5
+# Proposal density. A multivariate t (parameters given by the Laplace's approximation)
+Proposal <- function(x){
+    return (dmvt(x, delta=mode, sigma=Sigma, df=dof, type="shifted", log=FALSE))
+}
+ProposalSample <- function(n=1){
+    return (rmvt(n=n, sigma=Sigma, df=dof, delta=mode, type="shifted"))
+}
+```
+
+```{r echo=TRUE}
+# Generate a sample from the proposal distribution
+m <- 1000
+M <- m * 10
+betasample <- ProposalSample(M)
+# Calculate and normalize weights
+weights <- function(betasample){
+    numer <- apply(betasample, 1, PosteriorKernel)
+    denom <- apply(betasample, 1, Proposal)
+    w <- numer / denom
+    w <- w / sum(w)
+    return (w)
+}
+w <- weights(betasample)
+# Perform resampling
+resample <- function(betasample, w){
+  indices <- sample(1:M, size = m, replace = TRUE, prob = w)
+  return(betasample[indices,])
+}
+betasample <- resample(betasample, w)
+```
+Now that we can use this random sample to calculate the mean value and the standard deviation of $\beta_1$.
+We get:
+```{r echo=FALSE}
+print(paste0("Mean value: ", round(mean(betasample[,2]),4)))
+print(paste0("Standard deviation: ", round(sd(betasample[,2]),4)))
+```
+
+## Comparison
+
+Comparison of the two methods in the following table
+
+| Parameter           | Normal approximation    | SIR algorithm                        |
+|---------------------|-------------------------|--------------------------------------|
+| mean                | `r round(mode[2],4)`    | `r round(mean(betasample[,2]),4)`    |
+| standard deviation  | `r round(sqrt(var),4)`  | `r round(sd(betasample[,2]),4)`      |
+
+We conclude that the two approach give very similar results.
+
+```{r echo=FALSE}
+# Clear workspace exept specified objects
+rm(list=ls())
+```
 <!-- ----------------------------------------------------------------------------------------------------------------------------------------------- -->
 
 # Exercise 4:  Variance components model
@@ -551,6 +614,28 @@ where $\hat{y}_i$ and $S_i$ are respectively the mean yield and the "within sum 
      and assess the sensitivity of the numerical method to the starting value.
 - Use the normal approximation to find $90\%$ interval estimates for the log of the standard deviation $\log\sigma_y$, $\log\sigma_b$.
 - Using the results from the previous point find $90\%$ interval estimates for the variance components $\sigma_y^2$, $\sigma_b^2$.
+
+
+## Write an R function to compute the posterior log density with parametrization $\theta = (\mu, \log\sigma_y, \log\sigma_b)$.
+
+Let $N=6$ be the number of batches and $n=5$ the number of observations in each batch.
+First of all, write down a function to calculate the within sum of squares (SSW) for each group:
+\begin{equation}
+    SSW_i = \sum_{j=1}^{n} (y_{ij} - \bar{y}_i)^2
+\end{equation}
+
+```{r echo=TRUE}
+# Define some parameters
+N <- 6
+n <- 5
+mu <- rowMeans(x)
+S <- rowSums((x-mu)^2)
+```
+
+
+```{r echo=TRUE}
+dgamma(x, shape, rate = 1, scale = 1/rate, log = FALSE)
+```
 
 
 <!-- ----------------------------------------------------------------------------------------------------------------------------------------------- -->
