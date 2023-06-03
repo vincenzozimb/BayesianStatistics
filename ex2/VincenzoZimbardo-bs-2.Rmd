@@ -618,23 +618,83 @@ where $\hat{y}_i$ and $S_i$ are respectively the mean yield and the "within sum 
 
 ## Write an R function to compute the posterior log density with parametrization $\theta = (\mu, \log\sigma_y, \log\sigma_b)$.
 
-Let $N=6$ be the number of batches and $n=5$ the number of observations in each batch.
-First of all, write down a function to calculate the within sum of squares (SSW) for each group:
-\begin{equation}
-    SSW_i = \sum_{j=1}^{n} (y_{ij} - \bar{y}_i)^2
-\end{equation}
-
 ```{r echo=TRUE}
 # Define some parameters
-N <- 6
-n <- 5
-mu <- rowMeans(x)
-S <- rowSums((x-mu)^2)
+N <- length(x[,1])          # number of batches
+n <- length(x[1,])          # number of data in each batch
+mu <- rowMeans(x)           # mean value for each batch
+S <- rowSums((x-mu)^2)      # within sum of squares for each batch
 ```
+
+Let $N=$ `r N` be the number of batches and $n=$ `r n` the number of observations in each batch.
+The posterior density is given by:
+\begin{equation}
+    g(\mu, \sigma_y^2, \sigma_b^2 \vert data) = \prod_{i=1}^{N} \left[ \phi \left(\bar{y_i} \vert \mu, \sqrt{\frac{\sigma_y^2}{n} + \sigma_b^2} \right) 
+    f_G \left(S_i \vert \frac{n-1}{2}, \frac{1}{2\sigma_y^2} \right) \right]
+\end{equation}
+
+In order to change parametrization into $\theta = (\theta_1, \theta_2, \theta_3) = (\mu, \log\sigma_y, \log\sigma_b)$ the following Jacobian is needed
+
+\begin{align}
+    \mathbf{J} &=
+    \begin{bmatrix}
+    1 & 0 & 0 \\
+    0 & \frac{1}{2\sigma_y^2} & 0 \\
+    0 & 0 & \frac{1}{2\sigma_b^2} \\
+    \end{bmatrix} 
+    & \Longrightarrow & |J| = \frac{1}{4\sigma_y^2\sigma_b^2} & \Longrightarrow & |J|^{-1} = 4\sigma_y^2\sigma_b^2  
+\end{align}
+
+Changing variable:
+\begin{align}
+    g(\theta \vert data) &\propto \prod_{i=1}^{N} \left[ \phi \left(\bar{y_i} \vert \theta_1, \sqrt{\frac{e^{2\theta_2}}{n} + e^{2\theta_3}} \right) 
+    f_G \left(S_i \vert \frac{n-1}{2}, \frac{1}{2}e^{-2\theta_2} \right) (4 e^{2(\theta_2+\theta_3)}) \right] \\
+\end{align}
+
+In order to simplify the notation, let's introduce
+\begin{align}
+    \sigma = \sigma(\theta_2, \theta_3) &= \sqrt{\frac{e^{2\theta_2}}{n} + e^{2\theta_3}} & a &= \frac{n-1}{2} & b = b(\theta_2) &= \frac{1}{2}e^{-2\theta_2}  
+\end{align}
+
+With this notation:
+\begin{align}
+    g(\theta \vert data) &\propto e^{2N(\theta_2+\theta_3)} \prod_{i=1}^{N} \left[ \phi \left(\bar{y_i} \vert \theta_1, \sigma \right) 
+    f_G \left(S_i \vert a, b \right) \right]
+\end{align}
+
+And thus the posterior log (up to an additive constant):
+\begin{equation}
+    \log(g(\theta \vert data)) = 2N(\theta_2+\theta_3) + \sum_{i=1}^{N} \phi(\bar{y_i} \vert \theta_1, \sigma) + \sum_{i=1}^{N} f_G(S_i \vert a, b)
+\end{equation}
 
 
 ```{r echo=TRUE}
-dgamma(x, shape, rate = 1, scale = 1/rate, log = FALSE)
+# define auxiliary parameter and functions
+a <- (n-1) / 2
+sigma <- function(theta2, theta3){
+    return ( sqrt( exp(2*theta2)/n + exp(2*theta3) ) )
+}
+b <- function(theta2){
+    return ( exp(-2*theta2) / 2 )
+}
+# Normal density
+phi <- function(y, theta){
+    t1 <- theta[1]
+    t2 <- theta[2]
+    t3 <- theta[3]
+    return ( dnorm(y, t1, sigma(t2, t3)) )
+}
+# Gamma density
+fG <- function(S, theta){
+    t1 <- theta[1]
+    t2 <- theta[2]
+    t3 <- theta[3]
+    return ( dgamma(S, a, 1/b(t2)) )
+}
+```
+
+```{r echo=TRUE}
+# dgamma(x, shape, rate = 1, scale = 1/rate, log = FALSE)
 ```
 
 
