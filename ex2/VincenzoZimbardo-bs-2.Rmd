@@ -664,37 +664,83 @@ With this notation:
 
 And thus the posterior log (up to an additive constant):
 \begin{equation}
-    \log(g(\theta \vert data)) = 2N(\theta_2+\theta_3) + \sum_{i=1}^{N} \phi(\bar{y_i} \vert \theta_1, \sigma) + \sum_{i=1}^{N} f_G(S_i \vert a, b)
+    \log(g(\theta \vert data)) = 2N(\theta_2+\theta_3) + \sum_{i=1}^{N} \log(\phi(\bar{y_i} \vert \theta_1, \sigma)) + \sum_{i=1}^{N} \log(f_G(S_i \vert a, b))
 \end{equation}
 
 
 ```{r echo=TRUE}
-# define auxiliary parameter and functions
-a <- (n-1) / 2
-sigma <- function(theta2, theta3){
-    return ( sqrt( exp(2*theta2)/n + exp(2*theta3) ) )
-}
-b <- function(theta2){
-    return ( exp(-2*theta2) / 2 )
-}
-# Normal density
-phi <- function(y, theta){
+# Log-Posterior density
+logPost <- function(theta){
+    # extract theta
     t1 <- theta[1]
     t2 <- theta[2]
     t3 <- theta[3]
-    return ( dnorm(y, t1, sigma(t2, t3)) )
-}
-# Gamma density
-fG <- function(S, theta){
-    t1 <- theta[1]
-    t2 <- theta[2]
-    t3 <- theta[3]
-    return ( dgamma(S, a, 1/b(t2)) )
+    # parameters
+    a <- (n-1) / 2
+    var <- exp(2*t2)/n + exp(2*t3)
+    b <- exp(-2*t2) / 2
+    # calculate the result
+    res <- 2*N*(t2+t3)
+    res <- sum(dnorm(mu, mean=t1, sd=sqrt(var), log=TRUE))
+    res <- res + sum(dgamma(S, shape = a, rate = b, log = TRUE))   
+    return (res)
 }
 ```
 
+## Normal approaximation
+
+```{r echo=FALSE}
+scaling <- 1 #1e6
+```
+
+First attempt
+```{r echo=TRUE, warning=FALSE}
+start1        <- c(1500, 3, 3)
+optimization1 <- optim(par=start1, fn=logPost, control=list(fnscale=-scaling), method = "BFGS", hessian = TRUE)
+mode1         <- optimization1$par
+increment1    <- abs(mode1-start1)
+```
+
+Second attempt
+```{r echo=TRUE, warning=FALSE}
+start2        <- c(1500, 1, 1)
+optimization2 <- optim(par=start2, fn=logPost, control=list(fnscale=-scaling), method = "BFGS", hessian = TRUE)
+mode2         <- optimization2$par
+increment2    <- abs(mode2-start2)
+```
+
+Third attempt
+```{r echo=TRUE, warning=FALSE}
+start3        <- c(1500, 10, 10)
+optimization3 <- optim(par=start3, fn=logPost, control=list(fnscale=-scaling), method = "BFGS", hessian = TRUE)
+mode3         <- optimization3$par
+increment3    <- abs(mode3-start3)
+```
+
+The following results are obtained
+
+| Starting value | Mode               |
+|----------------|--------------------|
+| (1500, 3, 3)   | `r round(mode1,4)` |
+| (1500, 1, 1)   | `r round(mode2,4)` |
+| (1500, 10, 10) | `r round(mode3,4)` |
+
+## Assess the sensitivity of the numerical method to the starting value
+
+The obtained results are stable under small variations of the corresponding initial conditions.
+This was checked slightly perturbing each initial condition and calculating the sensitivity coefficients  
+
+## Find a 90% interval estimates for the log of the standard deviations $\log\sigma_y$, $\log\sigma_b$
+
 ```{r echo=TRUE}
-# dgamma(x, shape, rate = 1, scale = 1/rate, log = FALSE)
+mode <- mode1
+H <- optimization1$hessian
+V <- -solve(H)
+# V <- -solve(optimization1$hessian)
+# lowery <- mode[2]-qnorm(0.95)*sqrt(V[2,2])
+# uppery <- mode[2]+qnorm(0.95)*sqrt(V[2,2])
+# lowerb <- mode[3]-qnorm(0.95)*sqrt(V[3,3])
+# upperb <- mode[3]+qnorm(0.95)*sqrt(V[3,3])
 ```
 
 
