@@ -89,7 +89,7 @@ AccRej <- function(n, K){
 # Sample from from the posterior using the acc-rej algorithm
 x <- seq(-4*sigma,4*sigma,length.out = 100)
 y <- PosteriorKernel(x)
-threshold <- 1e-4 #1e-5
+threshold <- 1e-5
 x_ar <- c()
 prob <- c()
 varest <- c()
@@ -196,12 +196,10 @@ We get the following result:
 # Probability that the coin is biased toward heads
 print(paste0("Probability that the coin is biased toward heads: ", round(alpha,4)))
 ```
-Justify the stuff about the confidence interval?
 
 ```{r echo=FALSE}
-# Clear workspace exept specified objects
+# Clear workspace
 rm(list=ls())
-#rm(list=setdiff(ls(), "AccRej"))
 ```
 
 <!-- ----------------------------------------------------------------------------------------------------------------------------------------------- -->
@@ -423,7 +421,7 @@ Comparison for $\eta$ estimation in the following table
 
 Insert also result for $\theta$?
 ```{r echo=FALSE}
-# Clear workspace exept specified objects
+# Clear workspace
 rm(list=ls())
 ```
 
@@ -690,13 +688,13 @@ logPost <- function(theta){
 ## Normal approaximation
 
 ```{r echo=FALSE}
-scaling <- 1 #1e6
+scaling <- 1
 ```
 
 First attempt
 ```{r echo=TRUE, warning=FALSE}
 start1        <- c(1500, 3, 3)
-optimization1 <- optim(par=start1, fn=logPost, control=list(fnscale=-scaling), method = "BFGS", hessian = TRUE)
+optimization1 <- optim(par=start1, fn=logPost, control=list(fnscale=-scaling), method="CG", hessian = TRUE)
 mode1         <- optimization1$par
 increment1    <- abs(mode1-start1)
 ```
@@ -704,7 +702,7 @@ increment1    <- abs(mode1-start1)
 Second attempt
 ```{r echo=TRUE, warning=FALSE}
 start2        <- c(1500, 1, 1)
-optimization2 <- optim(par=start2, fn=logPost, control=list(fnscale=-scaling), method = "BFGS", hessian = TRUE)
+optimization2 <- optim(par=start2, fn=logPost, control=list(fnscale=-scaling), method="CG", hessian = TRUE)
 mode2         <- optimization2$par
 increment2    <- abs(mode2-start2)
 ```
@@ -712,7 +710,7 @@ increment2    <- abs(mode2-start2)
 Third attempt
 ```{r echo=TRUE, warning=FALSE}
 start3        <- c(1500, 10, 10)
-optimization3 <- optim(par=start3, fn=logPost, control=list(fnscale=-scaling), method = "BFGS", hessian = TRUE)
+optimization3 <- optim(par=start3, fn=logPost, control=list(fnscale=-scaling), method="CG", hessian = TRUE)
 mode3         <- optimization3$par
 increment3    <- abs(mode3-start3)
 ```
@@ -725,24 +723,44 @@ The following results are obtained
 | (1500, 1, 1)   | `r round(mode2,4)` |
 | (1500, 10, 10) | `r round(mode3,4)` |
 
+So, the $3$ initial conditions yield approximately the same result.
+
 ## Assess the sensitivity of the numerical method to the starting value
 
 The obtained results are stable under small variations of the corresponding initial conditions.
-This was checked slightly perturbing each initial condition and calculating the sensitivity coefficients  
+This was checked slightly perturbing each initial condition and calculating the sensitivity coefficients.  
 
-## Find a 90% interval estimates for the log of the standard deviations $\log\sigma_y$, $\log\sigma_b$
+## Find a 90% interval estimates for the log of the standard deviations and for the variances
+
+Calculate a $90\%$ confidence interval for $\theta_2=\log\sigma_y$ and $\theta_3=\log\sigma_b$
 
 ```{r echo=TRUE}
 mode <- mode1
-H <- optimization1$hessian
-V <- -solve(H)
-# V <- -solve(optimization1$hessian)
-# lowery <- mode[2]-qnorm(0.95)*sqrt(V[2,2])
-# uppery <- mode[2]+qnorm(0.95)*sqrt(V[2,2])
-# lowerb <- mode[3]-qnorm(0.95)*sqrt(V[3,3])
-# upperb <- mode[3]+qnorm(0.95)*sqrt(V[3,3])
+V <- -solve(optimization1$hessian)
+lowery <- mode[2]-qnorm(0.95)*sqrt(V[2,2])
+uppery <- mode[2]+qnorm(0.95)*sqrt(V[2,2])
+lowerb <- mode[3]-qnorm(0.95)*sqrt(V[3,3])
+upperb <- mode[3]+qnorm(0.95)*sqrt(V[3,3])
 ```
 
+| Parameter      | $90\%$ confidence interval         |
+|----------------|------------------------------------|
+| $\log\sigma_y$ | $[`r round(c(lowery, uppery),4)`]$ |
+| $\log\sigma_b$ | $[`r round(c(lowerb, upperb),4)`]$ |
+
+From which the $90\%$ confidence interval for the $\sigma_y^2$ and $\sigma_b^2$
+
+```{r echo=TRUE}
+lowervary <- exp(2*lowery)
+uppervary <- exp(2*uppery)
+lowervarb <- exp(2*lowerb)
+uppervarb <- exp(2*upperb)
+```
+
+| Parameter    | $90\%$ confidence interval |
+|--------------|----------------------------|
+| $\sigma_y^2$ | $[`r round(c(lowervary, uppervary),4)`]$  |
+| $\sigma_b^2$ | $[`r round(c(lowervarb, uppervarb),4)`]$  |
 
 <!-- ----------------------------------------------------------------------------------------------------------------------------------------------- -->
 
