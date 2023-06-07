@@ -50,3 +50,6 @@ rsconnect/
 
 # html output file
 *.html
+
+# test file
+prova.R
