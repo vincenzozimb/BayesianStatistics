@@ -2,7 +2,6 @@
 title: Homework 2 - Bayesian Statistics 2023
 author: Vincenzo Zimbardo 
 output: html_document
-bibliography: references.bib
 ---
 
 # Exercise 1: Estimating a log-odds with a normal prior
@@ -177,8 +176,6 @@ Now we can construct a $95\%$ confidence interval as follows:
 ```{r echo=FALSE}
 print(paste0("Confidence interval [", round(alpha+qnorm(0.025)*sqrt(sigma_alpha),4), ",", round(alpha+qnorm(0.975)*sqrt(sigma_alpha),4), "]"))
 ```
-
-For the SIR algorithm I used the following references: @10.2307/24307704, @doi:10.1080/01621459.1987.10478461
 
 ## Laplace approximation
 First of all, we need the mode of the posterior. It is the also the mode of the log posterior $\log g(\theta \vert y)$
@@ -762,5 +759,3 @@ uppervarb <- exp(2*upperb)
 | $\sigma_b^2$ | $[`r round(c(lowervarb, uppervarb),4)`]$  |
 
 <!-- ----------------------------------------------------------------------------------------------------------------------------------------------- -->
-
-# References
