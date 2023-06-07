@@ -419,7 +419,6 @@ Comparison for $\eta$ estimation in the following table
 | standard deviation  | `r sdv`                              | `r sqrt(var)`                        |
 | confidence interval | `r paste0(CI_ac, collapse="")`       | `r paste0(CI_la, collapse="")`       |
 
-Insert also result for $\theta$?
 ```{r echo=FALSE}
 # Clear workspace
 rm(list=ls())
