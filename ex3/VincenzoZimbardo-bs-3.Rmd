@@ -4,8 +4,73 @@ author: Vincenzo Zimbardo
 output: html_document
 ---
 
-# Exercise 1
+# Exercise 1: Mixture of exponential data
 
+Suppose a company obtains boxes of electronic parts from a particular supplier. 
+It is known that $80\%$ of the lots are acceptable and the lifetimes of the "acceptable" parts follow an exponential distribution with mean $\lambda_A$.
+Unfortunately, $20\%$ of the lots are unacceptable and the lifetimes of the "bad" parts are exponential with mean $\lambda_B$, 
+where $\lambda_A > \lambda_B$. Suppose $y_1, \ldots, y_n$, are the lifetimes of $n$ inspected parts that can come from either acceptable
+and unacceptable lots. 
+
+The following lifetimes are observed from a sample of $30$ parts:
+```{r echo=TRUE}
+# Lifetimes data 
+data <- c(0.98, 0.29, 36.70, 10.39, 39.93)
+data <- c(data, c(14.57, 1.67, 18.81, 4.87, 20.24))
+data <- c(data, c(0.08, 7.08, 14.89, 18.64, 8.69))
+data <- c(data, c(0.18, 32.21, 0.16, 1.46, 0.58))
+data <- c(data, c(86.49, 18.51, 0.72, 2.69, 2.58))
+data <- c(data, c(41.79, 50.38, 0.77, 24.60, 0.91))
+```
+
+
+The $y_i$s are a random sample from the mixture distribution
+$$  
+h(y \vert  \lambda_A, \lambda_B) = p \frac{\exp(-y/\lambda_A)}{\lambda_A} + (1-p) \frac{\exp(-y/\lambda_B)}{\lambda_B} \ ,
+$$
+where $p=0.8$. Suppose $(\lambda_A, \lambda_B)$ are assigned the noninformative prior proportional to $1/(\lambda_A \ \lambda_B)$. 
+The following function \texttt{log.exponential.mix} computes the log posterior density of the transformed parameters 
+$\theta = (\theta_A, \theta_B) = (\log \lambda_A, \log \lambda_B)$:
+
+```{r echo=TRUE}  
+log.exponential.mix <- function(theta) {
+  lambda.A <- exp(theta[1])
+  lambda.B <- exp(theta[2])  
+  sum(log(0.8*dexp(data,1/lambda.A)+(1-0.8)*dexp(data,1/lambda.B))) 
+}
+```
+    
+### Construct a contour plot of $(\theta_A, \theta_B)$ over the rectangle $(1,4) \times (-2,8)$
+
+```{r echo=TRUE}
+# Create data
+x <- seq(1, 4, 0.01)
+y <- seq(-2, 8, 0.01)
+z <- matrix(nrow = length(x), ncol = length(y))
+
+for (i in 1:length(x)) {
+  for (j in 1:length(y)) {
+    z[i, j] <- log.exponential.mix(theta = c(x[i], y[j]))
+  }
+}
+
+# Create the contour plot
+contour(x, y, z, main = "Contour Plot", xlab = expression(theta[A]), ylab = expression(theta[B]))
+```
+
+### Using the function \texttt{optim} search for the posterior mode with a starting guess of $(\theta_A, \theta_B) = (3,0)$.
+
+
+
+
+- Search for the posterior mode with a starting guess $(\theta_A, \theta_B) = (2,4)$.
+- Explain why you obtain different estimates of the posterior mode in the previous two points.  
+- Use a normal approximation to construct a random walk Metropolis chain for sampling the posterior of $\theta= (\log(\lambda_A), \log(\lambda_B))$. Run the chain for $10000$ iterations, and costruct density estimates for $\log(\lambda_A)$ and $\log(\lambda_B)$.
+- Construct a Metropolis within Gibbs samples, i.e., use a Metropolis algorithm to sample from $\log(\lambda_B) \lvert \log(\lambda_A)$ and then do the viceversa. Also run the chain for $10000$ iterations and costruct density estimates for $\log(\lambda_A)$ and $\log(\lambda_B)$.   
+
+```{r echo=TRUE}
+
+```
 
 ```{r echo=FALSE}
 # Clear workspace
