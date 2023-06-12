@@ -2,6 +2,7 @@
 title: Homework 3 - Bayesian Statistics 2023
 author: Vincenzo Zimbardo 
 output: html_document
+bibliography: references.bib
 ---
 
 # Exercise 1: Mixture of exponential data
@@ -55,26 +56,131 @@ for (i in 1:length(x)) {
 }
 
 # Create the contour plot
-contour(x, y, z, main = "Contour Plot", xlab = expression(theta[A]), ylab = expression(theta[B]))
+contour(x, y, z, main = "Contour Plot", nlevels=15, xlab = expression(theta[A]), ylab = expression(theta[B]))
 ```
 
 ### Using the function \texttt{optim} search for the posterior mode with a starting guess of $(\theta_A, \theta_B) = (3,0)$.
 
-
-
-
-- Search for the posterior mode with a starting guess $(\theta_A, \theta_B) = (2,4)$.
-- Explain why you obtain different estimates of the posterior mode in the previous two points.  
-- Use a normal approximation to construct a random walk Metropolis chain for sampling the posterior of $\theta= (\log(\lambda_A), \log(\lambda_B))$. Run the chain for $10000$ iterations, and costruct density estimates for $\log(\lambda_A)$ and $\log(\lambda_B)$.
-- Construct a Metropolis within Gibbs samples, i.e., use a Metropolis algorithm to sample from $\log(\lambda_B) \lvert \log(\lambda_A)$ and then do the viceversa. Also run the chain for $10000$ iterations and costruct density estimates for $\log(\lambda_A)$ and $\log(\lambda_B)$.   
-
 ```{r echo=TRUE}
-
+start1        <- c(3, 0)
+optimization1 <- optim(par=start1, fn=log.exponential.mix, control=list(fnscale=-1), hessian = TRUE)
+mode1         <- optimization1$par
 ```
 
 ```{r echo=FALSE}
+print(paste0("Mode (", round(mode1[1],4), ",", round(mode1[2],4), ")"))
+```
+
+### Search for the posterior mode with a starting guess $(\theta_A, \theta_B) = (2,4)$.
+
+```{r echo=TRUE}
+start2        <- c(2, 4)
+optimization2 <- optim(par=start2, fn=log.exponential.mix, control=list(fnscale=-1), hessian = TRUE)
+mode2         <- optimization2$par
+```
+
+```{r echo=FALSE}
+print(paste0("Mode (", round(mode2[1],4), ",", round(mode2[2],4), ")"))
+```
+
+### Explain why you obtain different estimates of the posterior mode in the previous two points.  
+
+The default method in the `optim` function in `R` is the one of @10.1093/comjnl/7.4.308, which is a deterministic numerical method. 
+It assumes the existence of a unique maximum in the area of the search, as explained by the authors.
+For this reason, the two different initial conditions give rise to two different results. As it is possible to note from the contour plot,
+with the first initial condition the algorithm converges to the local minimum in the lower-right part of the plot, while the second initial condition is driven
+away from it, toward another local minumum.
+
+To overcome this problem, in the case of multimodal function to be optimized, stochastic methods are used instead.
+Indeed, using the `SANN` method in the function `optim`, which implement a simulated annealing algorithm, the following results are obtained: 
+
+```{r echo=TRUE}
+optimization <- optim(par=start1, fn=log.exponential.mix, control=list(fnscale=-1), method="SANN", hessian=TRUE)
+mode         <- optimization$par
+```
+
+```{r echo=FALSE}
+print(paste0("Mode (", round(mode[1],4), ",", round(mode[2],4), ")"))
+```
+
+```{r echo=TRUE}
+optimization <- optim(par=start2, fn=log.exponential.mix, control=list(fnscale=-1), method="SANN", hessian=TRUE)
+mode         <- optimization$par
+```
+
+```{r echo=FALSE}
+print(paste0("Mode (", round(mode[1],4), ",", round(mode[2],4), ")"))
+```
+
+From which we can deduce which is the global minumum.
+
+### Use a normal approximation to construct a random walk Metropolis chain for sampling the posterior of $\theta= (\log(\lambda_A), \log(\lambda_B))$. Run the chain for $10000$ iterations, and costruct density estimates for $\log(\lambda_A)$ and $\log(\lambda_B)$.
+
+```{r echo=TRUE}
+# Laplace approximation
+mode <- mode1
+V <- -solve(optimization1$hessian)
+```
+
+Implementation of the random walk Metropolis-Hastings algorithm
+```{r echo=TRUE}
+library(mvtnorm)
+# target distribution
+target <- function(x){
+  return (exp(log.exponential.mix(x)))
+}
+# proposal distribution
+proposal <- function(x) {
+  proposed_value <- x + rmvnorm(n = 1, mean = mode, sigma = V)
+  return(proposed_value)
+}
+# Metropolis-Hastings update
+RWMH <- function(x, target, proposal, n){
+  samples <- matrix(nrow=n, ncol=2)
+  current_value <- x
+  accepted <- 0
+  for (i in 1:n){
+    # sample from proposal
+    proposed_value <- proposal(current_value)
+    # calculate acceptance ratio
+    acceptance_ratio <- target(proposed_value) / target(current_value)
+    # accept or reject the proposal step
+    # print(acceptance_ratio)
+    if (runif(1) < acceptance_ratio){
+      current_value <- proposed_value
+      accepted <- accepted + 1
+    }
+    samples[i,] <- current_value[]
+  }
+  # update acceptance ratio
+  acceptance_rate <- accepted / n
+  # return
+  result <- list(samples=samples, acceptance_rate=acceptance_rate)
+  return(result)
+}
+```
+
+Sampling
+```{r echo=TRUE}
+# Set the parameters for the Random Walk Metropolis-Hastings algorithm
+x <- c(3,0)  # Initial value of the Markov chain
+n <- 10000  # Number of iterations
+# Run the Random Walk Metropolis-Hastings algorithm
+result <- RWMH(x, target, proposal, n)
+# Get the sampled values and acceptance rate
+samples <- result$samples
+acceptance_rate <- result$acceptance_rate
+# Print the acceptance rate
+cat("Acceptance rate:", acceptance_rate, "\n")
+```
+
+### Construct a Metropolis within Gibbs samples, i.e., use a Metropolis algorithm to sample from $\log(\lambda_B) \lvert \log(\lambda_A)$ and then do the viceversa. Also run the chain for $10000$ iterations and costruct density estimates for $\log(\lambda_A)$ and $\log(\lambda_B)$.   
+
+
+
+```{r echo=FALSE}
 # Clear workspace
-rm(list=ls())
+# rm(list=ls())
 ```
 
 <!--------------------------------------------------------------------------------------------------------------------------------------------------->
@@ -88,5 +194,9 @@ rm(list=ls())
 <!--------------------------------------------------------------------------------------------------------------------------------------------------->
 
 # Exercise 4
+
+<!--------------------------------------------------------------------------------------------------------------------------------------------------->
+
+# References
 
 <!--------------------------------------------------------------------------------------------------------------------------------------------------->
