@@ -7,6 +7,10 @@ bibliography: references.bib
 
 # Exercise 1: Mixture of exponential data
 
+```{r echo=FALSE}
+set.seed(12345)
+```
+
 Suppose a company obtains boxes of electronic parts from a particular supplier. 
 It is known that $80\%$ of the lots are acceptable and the lifetimes of the "acceptable" parts follow an exponential distribution with mean $\lambda_A$.
 Unfortunately, $20\%$ of the lots are unacceptable and the lifetimes of the "bad" parts are exponential with mean $\lambda_B$, 
@@ -37,7 +41,8 @@ $\theta = (\theta_A, \theta_B) = (\log \lambda_A, \log \lambda_B)$:
 log.exponential.mix <- function(theta) {
   lambda.A <- exp(theta[1])
   lambda.B <- exp(theta[2])  
-  sum(log(0.8*dexp(data,1/lambda.A)+(1-0.8)*dexp(data,1/lambda.B))) 
+  res <- sum(log(0.8*dexp(data,1/lambda.A)+(1-0.8)*dexp(data,1/lambda.B))) 
+  return (res)
 }
 ```
     
@@ -112,7 +117,7 @@ mode         <- optimization$par
 print(paste0("Mode (", round(mode[1],4), ",", round(mode[2],4), ")"))
 ```
 
-From which we can deduce which is the global minumum.
+From that it can be deduced which one is the global minimum.
 
 ### Use a normal approximation to construct a random walk Metropolis chain for sampling the posterior of $\theta= (\log(\lambda_A), \log(\lambda_B))$. Run the chain for $10000$ iterations, and costruct density estimates for $\log(\lambda_A)$ and $\log(\lambda_B)$.
 
@@ -129,59 +134,94 @@ library(mvtnorm)
 target <- function(x){
   return (exp(log.exponential.mix(x)))
 }
-# proposal distribution
-proposal <- function(x) {
-  proposed_value <- x + rmvnorm(n = 1, mean = mode, sigma = V)
-  return(proposed_value)
-}
-# Metropolis-Hastings update
-RWMH <- function(x, target, proposal, n){
-  samples <- matrix(nrow=n, ncol=2)
-  current_value <- x
-  accepted <- 0
+# Random Walk Metropolis-Hastings
+RWMH <- function(x_start, target, n){
+  samples <- matrix(nrow=n+1, ncol=2)
+  samples[1,] <- x_start
+  x_curr <- x_start
+  # iteration
   for (i in 1:n){
     # sample from proposal
-    proposed_value <- proposal(current_value)
+    z_prop <- mvrnorm(n=1, mu=c(0,0), Sigma=V)
     # calculate acceptance ratio
-    acceptance_ratio <- target(proposed_value) / target(current_value)
+    x_prop <- x_curr + z_prop
+    acceptance_ratio <- target(x_prop) / target(x_curr)
     # accept or reject the proposal step
-    # print(acceptance_ratio)
-    if (runif(1) < acceptance_ratio){
-      current_value <- proposed_value
-      accepted <- accepted + 1
+    if (runif(1) < acceptance_ratio) {
+      x_curr <- x_prop
     }
-    samples[i,] <- current_value[]
+    samples[i+1,] <- x_curr
   }
-  # update acceptance ratio
-  acceptance_rate <- accepted / n
-  # return
-  result <- list(samples=samples, acceptance_rate=acceptance_rate)
-  return(result)
+  # return samples
+  return (samples)
 }
 ```
 
 Sampling
 ```{r echo=TRUE}
 # Set the parameters for the Random Walk Metropolis-Hastings algorithm
-x <- c(3,0)  # Initial value of the Markov chain
+x_start <- c(3,0)  # Initial value of the Markov chain
 n <- 10000  # Number of iterations
 # Run the Random Walk Metropolis-Hastings algorithm
-result <- RWMH(x, target, proposal, n)
-# Get the sampled values and acceptance rate
-samples <- result$samples
-acceptance_rate <- result$acceptance_rate
-# Print the acceptance rate
-cat("Acceptance rate:", acceptance_rate, "\n")
+samples <- RWMH(x_start, target, n)
+samples <- samples[-1,]
 ```
 
-### Construct a Metropolis within Gibbs samples, i.e., use a Metropolis algorithm to sample from $\log(\lambda_B) \lvert \log(\lambda_A)$ and then do the viceversa. Also run the chain for $10000$ iterations and costruct density estimates for $\log(\lambda_A)$ and $\log(\lambda_B)$.   
+```{r echo=FALSE}
+# trace  to check convergence
+par(mfrow = c(1, 2))
+plot(1:n,samples[,1], type="l", xlab = expression(i), ylab = expression(theta[A]^(i)))
+plot(1:n,samples[,2], type="l", xlab = expression(i), ylab = expression(theta[B]^(i)))
+# Restore default plot options
+par(mfrow = c(1, 1))
+```
 
+From the trace plots is is possible to deduce that no burn-in phase is necessary. The reason for that is that a good starting point 
+(the mode obtained from the Laplace's approximation) has been used. 
+On the other hand, if another initial condition is chosen (for example the local maximum $(2,4)$) a burn-in phase could not be optional. 
+
+Correlation analysis
+```{r echo=TRUE}
+acf(samples)
+```
+
+In order to reduce the autocorrelation in the sample we could use a thinning procedure (increasing the computation time) or try to randomly permute the obtained sequence:
+```{r echo=TRUE}
+# permute the samples to lower the autocorrelation
+samples[,1] <- sample(samples[,1])
+samples[,2] <- sample(samples[,2])
+acf(samples)
+```
+
+In this way the autocorrelation is drastically reduced and the sample can be considered as an IID sample.
+
+
+The final sample is summarized in the following $2D$ histogram:
+```{r echo=FALSE, message=FALSE}
+library(gplots)
+hist_obj <- hist2d(samples, col=c("aliceblue", heat.colors(12)), main="RWMH sample histogram", xlab = expression(theta[A]), ylab = expression(theta[B]))
+```
+
+Finally, density estimates for $\log(\lambda_A)$ and $\log(\lambda_B)$ can be constructed:
+```{r echo=TRUE}
+theta_A <- mean(samples[,1])
+theta_B <- mean(samples[,2])
+``` 
+
+```{r echo=FALSE}
+print(paste0("theta_A", ":", round(theta_A,4)))
+print(paste0("theta_B", ":", round(theta_B,4)))
+```
+
+
+### Construct a Metropolis within Gibbs samples, i.e., use a Metropolis algorithm to sample from $\log(\lambda_B) \lvert \log(\lambda_A)$ and then do the viceversa. Also run the chain for $10000$ iterations and costruct density estimates for $\log(\lambda_A)$ and $\log(\lambda_B)$.   
 
 
 ```{r echo=FALSE}
 # Clear workspace
 # rm(list=ls())
 ```
+
 
 <!--------------------------------------------------------------------------------------------------------------------------------------------------->
 
