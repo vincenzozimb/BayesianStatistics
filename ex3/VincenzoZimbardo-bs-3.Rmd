@@ -329,11 +329,14 @@ par(mfrow = c(1, 1))
 ```
 
 Correlation analysis
+
+#### Actually, it does not make much sense for the calculation of the arithmetic mean
+
 ```{r echo=TRUE}
 acf(samples)
 ```
 
-In this case there is neither burn-in phase nor autocorrelation reduction are needed, and we can regard the sample as an IID sample.
+In this case neither burn-in phase nor autocorrelation reduction are needed, and we can regard the sample as an IID sample.
 
 ```{r echo=FALSE, message=FALSE}
 library(gplots)
@@ -385,10 +388,12 @@ fit <- lm(weight ~ age + gender, data=data)
 summary(fit)
 ```
 
+From the p-values we deduce that `AGE` is the most significant covariate. Its value is positive, as expected, 
+since the increasing age of the child should naturally lead to an increase in weight. 
+
+### Suppose a noninformative [Zellner's g prior](https://en.wikipedia.org/wiki/G-prior) is placed on the regression parameter vector $\beta = (\beta_0,\beta_1,\beta_2)$ and assume an Inverse-Gamma priori for $\sigma^2$.
 
 
-
-- Suppose a noninformative [Zellner's g prior](https://en.wikipedia.org/wiki/G-prior) is placed on the regression parameter vector $\beta = (\beta_0,\beta_1,\beta_2)$ and assume an Inverse-Gamma priori for $\sigma^2$.
 - Simulate a sample of $5000$ draws from the joint posterior distribution of $(\beta,\sigma)$. Explore different values of the prior parameters. To help you on doing this point you might want to read this [slides](./bayes-varsel.pdf)  
 - Use the function \texttt{blinreg} in package `LearnBayes` to redo the simulation and compare the results.
 - From the simulated samples, compute the posterior means and standard deviations of $\beta_1$ and $\beta_2$.
