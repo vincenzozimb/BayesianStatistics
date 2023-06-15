@@ -129,7 +129,7 @@ V <- -solve(optimization1$hessian)
 
 Implementation of the random walk Metropolis-Hastings algorithm
 ```{r echo=TRUE}
-library(mvtnorm)
+library(MASS)
 # target distribution
 target <- function(x){
   return (exp(log.exponential.mix(x)))
@@ -143,11 +143,11 @@ RWMH <- function(x_start, target, n){
   for (i in 1:n){
     # sample from proposal
     z_prop <- mvrnorm(n=1, mu=c(0,0), Sigma=V)
-    # calculate acceptance ratio
+    # calculate acceptance probability
     x_prop <- x_curr + z_prop
-    acceptance_ratio <- target(x_prop) / target(x_curr)
+    acceptance_prob <- min(1, target(x_prop) / target(x_curr))
     # accept or reject the proposal step
-    if (runif(1) < acceptance_ratio) {
+    if (runif(1) < acceptance_prob) {
       x_curr <- x_prop
     }
     samples[i+1,] <- x_curr
@@ -178,7 +178,7 @@ par(mfrow = c(1, 1))
 
 From the trace plots is is possible to deduce that no burn-in phase is necessary. The reason for that is that a good starting point 
 (the mode obtained from the Laplace's approximation) has been used. 
-On the other hand, if another initial condition is chosen (for example the local maximum $(2,4)$) a burn-in phase could not be optional. 
+On the other hand, if another initial condition is chosen (for example in the proximity $(2,4)$ of the other local maximum) a burn-in phase could not be optional. 
 
 Correlation analysis
 ```{r echo=TRUE}
@@ -195,7 +195,6 @@ acf(samples)
 
 In this way the autocorrelation is drastically reduced and the sample can be considered as an IID sample.
 
-
 The final sample is summarized in the following $2D$ histogram:
 ```{r echo=FALSE, message=FALSE}
 library(gplots)
@@ -203,10 +202,11 @@ hist_obj <- hist2d(samples, col=c("aliceblue", heat.colors(12)), main="RWMH samp
 ```
 
 Finally, density estimates for $\log(\lambda_A)$ and $\log(\lambda_B)$ can be constructed:
+
 ```{r echo=TRUE}
 theta_A <- mean(samples[,1])
 theta_B <- mean(samples[,2])
-``` 
+```
 
 ```{r echo=FALSE}
 print(paste0("theta_A", ":", round(theta_A,4)))
@@ -216,16 +216,189 @@ print(paste0("theta_B", ":", round(theta_B,4)))
 
 ### Construct a Metropolis within Gibbs samples, i.e., use a Metropolis algorithm to sample from $\log(\lambda_B) \lvert \log(\lambda_A)$ and then do the viceversa. Also run the chain for $10000$ iterations and costruct density estimates for $\log(\lambda_A)$ and $\log(\lambda_B)$.   
 
+The Gibbs sampler is a MCMC algorithm in which each variable is sampled from its full conditional distribution while keeping the other variables fixed
+at their current values. This means that in each iteration, every variable in the model is updated one at a time, sequentially, using its conditional
+distribution given the current values of the other variables. The variables are updated in a cyclic manner until convergence is reached.
+
+Gibbs sampling is the optimal choice when the full conditional distributions are easily calculated and sampling from them is feasible.
+In this case it is not possible to easily calculate the full conditional distributions, so an implementation of the Metropolis within Gibbs is a better option. 
+
+The Metropolis within Gibbs algorithm is a variation of the Gibbs sampler: it also samples each variable from its conditional distribution given the other
+variables. However, instead of directly sampling from the conditional distribution, it employs the Metropolis-Hastings algorithm for acceptance/rejection of proposed values.
+The Metropolis within Gibbs algorithm introduces acceptance/rejection steps to handle situations where the conditional distribution of a variable is not
+readily available or it is difficult to sample directly from it.
+
+The Metropolis within Gibbs algorithm consists in the following steps
+
+1. Select a variable from the set of variables
+2. Propose a new value for the selected variable based on its conditional distribution
+3. Calculate the acceptance probability for the proposed value using the Metropolis-Hastings ratio
+4. Accept or reject the proposed value based on the acceptance probability
+5. Repeat until convergence is reached
+
+In order to sample from the full conditionals, we will need appropriate proposal distribution.
+To this end, we will use the conditional distribution obtained from the Laplace's approximation, that we have already calculated:
+
+\begin{equation}
+  (\theta_A, \theta_B) \sim \mathcal{N}_2 (\mu, \Sigma)
+\end{equation}
+With 
+\begin{align}
+  \mu &= 
+    \begin{pmatrix}
+      \mu_A \\
+      \mu_B \\
+    \end{pmatrix} 
+  & 
+  \Sigma &= 
+    \begin{bmatrix}
+      \sigma_{1}^2 & \sigma_{1}\sigma_{2}\rho \\
+      \sigma_{1}\sigma_{2}\rho & \sigma_{2}^2 \\
+    \end{bmatrix}
+\end{align}
+
+The conditional distributions are again normal distributions, with parameters: 
+
+\begin{equation}
+  (\theta_A | \theta_B) \sim \mathcal{N}_1 \left(\mu_A + \frac{\sigma_1 \rho}{\sigma_2}(\theta_B-\mu_B), \sigma_1^2(1-\rho^2)\right)
+\end{equation}
+
+And similarly for $(\theta_B | \theta_A)$, just exchange $\theta_B \leftrightarrow \theta_A$.
+
+
+```{r echo=TRUE}
+# Function to sample from the conditional distribution of theta_A given theta_B
+sample_A_given_B <- function(B, A_curr) {
+  # proposal parameter
+  mu <- mode[1] + (B-mode[2]) * V[1,2] / V[2,2]
+  var <- V[1,1] - V[1,2]^2 / V[2,2] 
+  # proposal density
+  A_prop <- rnorm(1, mean=mu, sd=sqrt(var))
+  acceptance_prob <- min(1, target(c(A_prop, B)) * dnorm(A_curr, mean=mu, sd=sqrt(var)) / ( target(c(A_curr, B)) * dnorm(A_prop, mean=mu, sd=sqrt(var)) ))
+  if (runif(1) < acceptance_prob){
+    return(A_prop)  # Accept the proposal
+  }else{
+    return(A_curr)  # Reject the proposal
+  }
+}
+# Function to sample from the conditional distribution of theta_B given theta_A
+sample_B_given_A <- function(A, B_curr) {
+  # proposal parameter
+  mu <- mode[2] + (A-mode[1]) * V[1,2] / V[1,1]
+  var <- V[2,2] - V[1,2]^2 / V[1,1] 
+  # proposal density
+  B_prop <- rnorm(1, mean=mu, sd=sqrt(var))
+  acceptance_prob <- min(1, target(c(A, B_prop)) * dnorm(B_curr, mean=mu, sd=sqrt(var)) / ( target(c(A, B_curr)) * dnorm(B_prop, mean=mu, sd=sqrt(var)) ))
+  if (runif(1) < acceptance_prob){
+    return(B_prop)  # Accept the proposal
+  }else{
+    return(B_curr)  # Reject the proposal
+  }
+}
+# Function to perform Metropolis within Gibbs sampling
+metropolis_within_gibbs <- function(n, A_start, B_start) {
+  samples <- matrix(nrow = n, ncol = 2)
+  A_curr <- A_start
+  B_curr <- B_start
+  for (i in 1:n) {
+    A_curr <- sample_A_given_B(B_curr, A_curr)
+    B_curr <- sample_B_given_A(A_curr, B_curr)
+    samples[i, ] <- c(A_curr, B_curr)
+  }
+  return(samples)
+}
+```
+
+Perform sampling
+```{r echo=TRUE}
+# Set the initial values and number of samples
+A_start <- 3
+B_start <- 0
+n <- 10000
+# Perform Metropolis within Gibbs sampling
+samples <- metropolis_within_gibbs(n, A_start, B_start)
+```
+
+```{r echo=FALSE}
+# trace  to check convergence
+par(mfrow = c(1, 2))
+plot(1:n,samples[,1], type="l", xlab = expression(i), ylab = expression(theta[A]^(i)))
+plot(1:n,samples[,2], type="l", xlab = expression(i), ylab = expression(theta[B]^(i)))
+# Restore default plot options
+par(mfrow = c(1, 1))
+```
+
+Correlation analysis
+```{r echo=TRUE}
+acf(samples)
+```
+
+In this case there is neither burn-in phase nor autocorrelation reduction are needed, and we can regard the sample as an IID sample.
+
+```{r echo=FALSE, message=FALSE}
+library(gplots)
+hist_obj <- hist2d(samples, col=c("aliceblue", heat.colors(12)), main="RWMH sample histogram", xlab = expression(theta[A]), ylab = expression(theta[B]))
+```
+
+Finally, density estimates for $\log(\lambda_A)$ and $\log(\lambda_B)$ can be constructed:
+
+```{r echo=TRUE}
+theta_A <- mean(samples[,1])
+theta_B <- mean(samples[,2])
+```
+
+```{r echo=FALSE}
+print(paste0("theta_A", ":", round(theta_A,4)))
+print(paste0("theta_B", ":", round(theta_B,4)))
+```
+
+We conclude noticing that the two sampling algorithms (RWMH and MwG) give very similar results.
 
 ```{r echo=FALSE}
 # Clear workspace
-# rm(list=ls())
+rm(list=ls())
 ```
 
 
-<!--------------------------------------------------------------------------------------------------------------------------------------------------->
+<!-- ----------------------------------------------------------------------------------------------------------------------------------------------- -->
 
-# Exercise 2
+# Exercise 2: Birthweight regression
+
+Dobson (2001) describes a birthweight regression study. One is interested in predicting a baby's birthweight (in grams) based on the gestational age (in weeks) and the gender of the baby. 
+The data are available as `birthweight` in the `LearnBayes` R package. In the standard linear regression model, we assume that
+
+$$
+BIRTHWEIGHT_i = \beta_0 + \beta_1 AGE_i + \beta_2 GENDER_i + \epsilon_i
+$$
+
+Data extraction
+```{r echo=TRUE}
+library(LearnBayes)
+data <- LearnBayes::birthweight
+str(data)
+```
+
+### Use the R function `lm` to fit this model by least-squares. From the output, assess if the effects `AGE` and `GENDER` are significant, and if they are significant, describe the effects of each covariate on `BIRTHWEIGHT`.
+
+```{r echo=TRUE}
+fit <- lm(weight ~ age + gender, data=data)
+summary(fit)
+```
+
+
+
+
+- Suppose a noninformative [Zellner's g prior](https://en.wikipedia.org/wiki/G-prior) is placed on the regression parameter vector $\beta = (\beta_0,\beta_1,\beta_2)$ and assume an Inverse-Gamma priori for $\sigma^2$.
+- Simulate a sample of $5000$ draws from the joint posterior distribution of $(\beta,\sigma)$. Explore different values of the prior parameters. To help you on doing this point you might want to read this [slides](./bayes-varsel.pdf)  
+- Use the function \texttt{blinreg} in package `LearnBayes` to redo the simulation and compare the results.
+- From the simulated samples, compute the posterior means and standard deviations of $\beta_1$ and $\beta_2$.
+- Check the consistency of the posterior means and standard deviations with the least-squares estimates and associated standard errors from the `lm` run.
+- Suppose one is interested in estimating the expected `birthweight` for `male` and `female` babies of gestational weeks `36` and `40`. From the simulated draws of the posterior distribution construct 90\% interval estimates for 36-week males, 36-week females, 40-week males, and 40-week females.
+- Compare the results you obained with those you can have from function `blinregexpected`.
+- Suppose instead that one wishes to predict the birthweight for a 36- week male, a 36-week female, a 40-week male, and a 40-week female. Use the simulated data  from the posterior to construct 90\% prediction intervals for the birthweight for each type of baby.
+- Compare the results you obained with those you can have from function `blinregpred`
+
+
 
 <!--------------------------------------------------------------------------------------------------------------------------------------------------->
 
