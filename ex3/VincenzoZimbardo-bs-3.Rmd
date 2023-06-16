@@ -228,7 +228,7 @@ variables. However, instead of directly sampling from the conditional distributi
 The Metropolis within Gibbs algorithm introduces acceptance/rejection steps to handle situations where the conditional distribution of a variable is not
 readily available or it is difficult to sample directly from it.
 
-The Metropolis within Gibbs algorithm consists in the following steps
+The Metropolis within Gibbs algorithm consists in the following steps (CHECK!)
 
 1. Select a variable from the set of variables
 2. Propose a new value for the selected variable based on its conditional distribution
@@ -393,9 +393,88 @@ since the increasing age of the child should naturally lead to an increase in we
 
 ### Suppose a noninformative [Zellner's g prior](https://en.wikipedia.org/wiki/G-prior) is placed on the regression parameter vector $\beta = (\beta_0,\beta_1,\beta_2)$ and assume an Inverse-Gamma priori for $\sigma^2$.
 
+Let's rewrite the linear regression model as
 
-- Simulate a sample of $5000$ draws from the joint posterior distribution of $(\beta,\sigma)$. Explore different values of the prior parameters. To help you on doing this point you might want to read this [slides](./bayes-varsel.pdf)  
-- Use the function \texttt{blinreg} in package `LearnBayes` to redo the simulation and compare the results.
+\begin{align}
+  y_i &= x_i^T \beta + \epsilon_i & \epsilon_i &\sim \mathcal{N}(0,\sigma^2) & \beta&=(\beta_0, \beta_1, \beta_2)^T
+\end{align}
+
+It follows that
+
+\begin{equation}
+  y_i | \beta, \sigma^2 \sim \mathcal{N}(x_i^T\beta, \sigma^2)
+\end{equation}
+
+Thus the likelihood for the model is (with $N$ equal to the number of observations):
+
+\begin{equation}
+  f(\mathbf{y} | \beta, \sigma^2) = (2\pi\sigma^2)^{-N/2} \exp{\left[-\frac{1}{2\sigma^2}\sum_{i=1}^{N}(y_i - x_i^T\beta)^2\right]}
+\end{equation}
+
+For the priors we consider the Zellner's g-prior for $\beta|\sigma^2$ and an inverse-gamma prior for $\sigma^2$
+
+\begin{align}
+  \beta|\sigma^2 &\sim \mathcal{N}_3(B, g\sigma^2 (X^T X)^{-1}) & \sigma^2 &\sim \mathcal{IG}(a,b)
+\end{align}
+
+Where $g>0$ and $X$ is the matrix with $i-th$ row equal to $x_i^T$.
+
+From Bayes's theorem:
+
+\begin{equation}
+  f(\beta, \sigma^2 | \textbf{y}) \propto f(\textbf{y} | \beta, \sigma^2) f(\beta, \sigma^2) = f(\textbf{y} | \beta, \sigma^2) f(\beta | \sigma^2) f(\sigma^2)
+\end{equation}
+
+```{r echo=TRUE}
+library(invgamma)
+library(mvtnorm)
+X <- cbind(rep(1,nrow(data)), data[,1], data[,2])
+y <- data[,3]
+XX <- solve(t(X) %*% X)
+N <- nrow(X)
+# Prior parameters
+a <- 10
+b <- 1000
+g <- 1e4
+coeff <- as.numeric(fit$coefficients["age"])
+Mu <- c(0,coeff,0)
+# prior on the variance sigma^2
+prior_sigma2 <- function(sigma2){
+  return (dinvgamma(sigma2, shape=a, rate=b))
+}
+# Zellner's g-prior on beta | sigma^2
+prior_beta <- function(beta, sigma2){
+  stopifnot(length(beta) == 3)
+  S <- g*sigma2 * XX
+  return ( dmvnorm(beta, Mu, S) )
+}
+# Likelihood
+likelihood <- function(beta, sigma2){
+  stopifnot(length(beta) == 3)
+  mu <- X %*% beta
+  f <- dnorm(y, mean = mu, sd = sqrt(sigma2), log=TRUE)
+  loglik <- sum(f)
+  return(exp(loglik))
+}
+# Posterior kernel
+posterior <- function(beta, sigma2){
+  stopifnot(length(beta) == 3)
+  return ( likelihood(beta, sigma2) * prior_beta(beta, sigma2) * prior_sigma2(sigma2) )
+}
+
+```
+
+### Simulate a sample of $5000$ draws from the joint posterior distribution of $(\beta,\sigma)$. Explore different values of the prior parameters. To help you on doing this point you might want to read this [slides](./bayes-varsel.pdf)  
+
+Try to implement a Gibbs sampler
+
+### Use the function \texttt{blinreg} in package `LearnBayes` to redo the simulation and compare the results.
+
+```{r echo=TRUE}
+
+```
+
+
 - From the simulated samples, compute the posterior means and standard deviations of $\beta_1$ and $\beta_2$.
 - Check the consistency of the posterior means and standard deviations with the least-squares estimates and associated standard errors from the `lm` run.
 - Suppose one is interested in estimating the expected `birthweight` for `male` and `female` babies of gestational weeks `36` and `40`. From the simulated draws of the posterior distribution construct 90\% interval estimates for 36-week males, 36-week females, 40-week males, and 40-week females.
@@ -404,6 +483,10 @@ since the increasing age of the child should naturally lead to an increase in we
 - Compare the results you obained with those you can have from function `blinregpred`
 
 
+```{r echo=FALSE}
+# Clear workspace
+# rm(list=ls())
+```
 
 <!--------------------------------------------------------------------------------------------------------------------------------------------------->
 
