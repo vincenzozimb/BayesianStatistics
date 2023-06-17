@@ -330,7 +330,7 @@ par(mfrow = c(1, 1))
 
 Correlation analysis
 
-#### Actually, it does not make much sense for the calculation of the arithmetic mean
+#### Actually, it does not make much sense for the calculation of the arithmetic mean. Do stuff of the integrated autocorrelation time and effective sample size. Also in the previous part
 
 ```{r echo=TRUE}
 acf(samples)
@@ -425,19 +425,26 @@ From Bayes's theorem:
   f(\beta, \sigma^2 | \textbf{y}) \propto f(\textbf{y} | \beta, \sigma^2) f(\beta, \sigma^2) = f(\textbf{y} | \beta, \sigma^2) f(\beta | \sigma^2) f(\sigma^2)
 \end{equation}
 
+About the choice of the prior hyper-parameters: 
+
+The mean of the g-prior $B$ is a vector that centers $\beta_1$ to the value given by the least-squares fit (as it is a significant value, given its p-value),
+while centers in zero the parameters $\beta_0$ and $\beta_1$, for which the least-squares fit provides a large p-value.
+The value of $a,b,g$ are chosen in such a way to have a quite large variance, thus without putting any strong prior assumption about the localization of the parameters. 
+
 ```{r echo=TRUE}
 library(invgamma)
 library(mvtnorm)
 X <- cbind(rep(1,nrow(data)), data[,1], data[,2])
 y <- data[,3]
-XX <- solve(t(X) %*% X)
+XX <- t(X) %*% X
+Y <- solve(XX)
 N <- nrow(X)
 # Prior parameters
 a <- 10
-b <- 1000
-g <- 1e4
+b <- 100
+g <- 1000
 coeff <- as.numeric(fit$coefficients["age"])
-Mu <- c(0,coeff,0)
+B <- c(0,coeff,0)
 # prior on the variance sigma^2
 prior_sigma2 <- function(sigma2){
   return (dinvgamma(sigma2, shape=a, rate=b))
@@ -445,8 +452,8 @@ prior_sigma2 <- function(sigma2){
 # Zellner's g-prior on beta | sigma^2
 prior_beta <- function(beta, sigma2){
   stopifnot(length(beta) == 3)
-  S <- g*sigma2 * XX
-  return ( dmvnorm(beta, Mu, S) )
+  S <- g*sigma2 * Y
+  return ( dmvnorm(beta, B, S) )
 }
 # Likelihood
 likelihood <- function(beta, sigma2){
@@ -464,18 +471,129 @@ posterior <- function(beta, sigma2){
 
 ```
 
-### Simulate a sample of $5000$ draws from the joint posterior distribution of $(\beta,\sigma)$. Explore different values of the prior parameters. To help you on doing this point you might want to read this [slides](./bayes-varsel.pdf)  
+### Simulate a sample of $5000$ draws from the joint posterior distribution of $(\beta,\sigma)$  
 
-Try to implement a Gibbs sampler
+The posteriorn density is, up to the normalizing constant (I omit the data in the notation for simplicity)
 
-### Use the function \texttt{blinreg} in package `LearnBayes` to redo the simulation and compare the results.
+\begin{equation}
+  f(\beta, \sigma^2) \propto (\sigma^2)^{-N/2-3/2-a-1} \exp\left[-\frac{1}{2\sigma^2}\sum_{i=1}^{N}(y_i-x_i^T\beta)^2 \right] \exp\left[ \frac{-1}{2\sigma^2g}(\beta-B)^T(X^TX)(\beta-B) \right] e^{-b/\sigma^2}
+\end{equation}
+
+And the full conditionals are:
+
+\begin{equation}
+  f(\sigma^2 | \beta) \propto (\sigma^2)^{-N/2-3/2-a-1} \exp\left[-\frac{1}{\sigma^2}\left(\frac{1}{2}\sum_{i=1}^{N}(y_i-x_i^T\beta)^2 + \frac{1}{2g}(\beta-B)^T(X^TX)(\beta-B) +b \right) \right]
+\end{equation}
+
+for $\sigma^2 | \beta$, which is an inverse-gamma distribution, let's say $\sigma^2 | \beta \sim \mathcal{IG}(\tilde{a}, \tilde{b})$, and
+
+\begin{align}
+  f(\beta | \sigma^2) &\propto \exp\left[-\frac{1}{2\sigma^2}\left(\sum_{i=1}^{N}(y_i-x_i^T\beta)^2 + \frac{1}{g}(\beta-B)^T(X^TX)(\beta-B)\right) \right] \\
+    &= \exp\left[ -\frac{1}{2\sigma^2} \left( (X^{-1}y-\beta)^TX^TX(X^{-1}y-\beta) + \frac{1}{g}(B-\beta)X^TX(B-\beta) \right) \right]
+\end{align}
+
+for $\beta | \sigma^2$, which is the product of two normal densities, with mean values $X^{-1}y$ and $B$ respectively, 
+and covariance matrices that differ only for a factor $1/g$. 
+
+In general, for two multivariate normal densities of parameters $(\mu_1, \Sigma_1)$ and $(\mu_2, \Sigma_2)$, the product is again a normal density
+of parameters $(\mu, \Sigma)$ given by
+
+\begin{align}
+  \mu &= \Sigma_2 (\Sigma_1 + \Sigma_2)^{-1} \mu_1 + \Sigma_1 (\Sigma_1 + \Sigma_2)^{-1} \mu_2 \\
+  \Sigma &= \Sigma_1 (\Sigma_1 + \Sigma_2)^{-1} \Sigma_2
+\end{align}
+
+In this case they are:
+
+\begin{align}
+  \mu &=  \\
+  \Sigma &= \frac{1}{2\sigma^2(1+g)}X^TX
+\end{align}
+
+Given the form of the two full conditionals, it might be worth to implement a Gibbs sampler.
+
+```{r echo=TRUE}
+# Function to sample from the conditional distribution of sigma^2 given beta
+sample_s2_given_b <- function(sigma2, beta){
+  stopifnot(length(beta) == 3)
+  # parameter
+  aa <- a + N/2 + 3/2
+  bb <- (sum((y - X%*%beta)^2) + t(beta-B)%*%XX%*%(beta-B) / g + b) / 2 
+  # proposal density
+  res <- rinvgamma(sigma2, shape=aa, rate=bb)
+  return (res)
+}
+# Function to sample from the conditional distribution of beta given sigma^2
+sample_b_given_s2 <- function(beta, sigma2){
+  stopifnot(length(beta) == 3)
+  # parameter
+  m <- solve(X)%*%y
+  mu <- B
+  S <-  
+  # proposal density
+  B_prop <- rnorm(1, mean=mu, sd=sqrt(var))
+  acceptance_prob <- min(1, target(c(A, B_prop)) * dnorm(B_curr, mean=mu, sd=sqrt(var)) / ( target(c(A, B_curr)) * dnorm(B_prop, mean=mu, sd=sqrt(var)) ))
+  if (runif(1) < acceptance_prob){
+    return(B_prop)  # Accept the proposal
+  }else{
+    return(B_curr)  # Reject the proposal
+  }
+}
+# Function to perform Metropolis within Gibbs sampling
+# metropolis_within_gibbs <- function(n, A_start, B_start) {
+#   samples <- matrix(nrow = n, ncol = 2)
+#   A_curr <- A_start
+#   B_curr <- B_start
+#   for (i in 1:n) {
+#     A_curr <- sample_A_given_B(B_curr, A_curr)
+#     B_curr <- sample_B_given_A(A_curr, B_curr)
+#     samples[i, ] <- c(A_curr, B_curr)
+#   }
+#   return(samples)
+# }
+```
 
 ```{r echo=TRUE}
 
 ```
 
+```{r echo=TRUE}
+n <- 5000
+```
 
-- From the simulated samples, compute the posterior means and standard deviations of $\beta_1$ and $\beta_2$.
+### Use the function \texttt{blinreg} in package `LearnBayes` to redo the simulation and compare the results.
+
+```{r echo=TRUE}
+prior <- list(b0=B, c0=g)
+LBsimul <- blinreg(y, X, n, prior)
+beta_simul <- LBsimul$beta
+sigma_simul <- sqrt(LBsimul$sigma)
+```
+
+```{r echo=FALSE}
+par(mfrow = c(1,4))
+hist(beta_simul[,1], main=NULL, xlab=expression(beta[0]))
+hist(beta_simul[,2], main=NULL, xlab=expression(beta[1]))
+hist(beta_simul[,3], main=NULL, xlab=expression(beta[2]))
+hist(sigma_simul, main=NULL, xlab = expression(sigma))
+par(mfrow = c(1, 1))
+```
+
+
+### From the simulated samples, compute the posterior means and standard deviations of $\beta_1$ and $\beta_2$.
+
+```{r echo=TRUE}
+beta1_simul <- mean(beta_simul[,2])
+dbeta1_simul <- sd(beta_simul[,2])
+beta2_simul <- mean(beta_simul[,3])
+dbeta2_simul <- sd(beta_simul[,3])
+```
+
+| Parameter  | Mean value               | Standard deviation           |
+|------------|--------------------------|------------------------------|
+| $\beta_1$  | `r round(beta1_simul,4)` | `r round(dbeta1_simul,4)`    |
+| $\beta_2$  | `r round(beta2_simul,4)` | `r round(dbeta2_simul,4)`    |
+
 - Check the consistency of the posterior means and standard deviations with the least-squares estimates and associated standard errors from the `lm` run.
 - Suppose one is interested in estimating the expected `birthweight` for `male` and `female` babies of gestational weeks `36` and `40`. From the simulated draws of the posterior distribution construct 90\% interval estimates for 36-week males, 36-week females, 40-week males, and 40-week females.
 - Compare the results you obained with those you can have from function `blinregexpected`.
