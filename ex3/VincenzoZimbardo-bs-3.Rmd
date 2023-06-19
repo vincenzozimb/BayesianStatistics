@@ -446,120 +446,154 @@ g <- 1000
 coeff <- as.numeric(fit$coefficients["age"])
 B <- c(0,coeff,0)
 # prior on the variance sigma^2
-prior_sigma2 <- function(sigma2){
-  return (dinvgamma(sigma2, shape=a, rate=b))
+logprior_sigma2 <- function(sigma2){
+  return (log(dinvgamma(sigma2, shape=a, rate=b)))
 }
 # Zellner's g-prior on beta | sigma^2
-prior_beta <- function(beta, sigma2){
+logprior_beta <- function(beta, sigma2){
   stopifnot(length(beta) == 3)
   S <- g*sigma2 * Y
-  return ( dmvnorm(beta, B, S) )
+  return ( dmvnorm(beta, B, S, log=TRUE) )
 }
-# Likelihood
-likelihood <- function(beta, sigma2){
+# Loglikelihood
+loglik <- function(beta, sigma2){
   stopifnot(length(beta) == 3)
   mu <- X %*% beta
   f <- dnorm(y, mean = mu, sd = sqrt(sigma2), log=TRUE)
-  loglik <- sum(f)
-  return(exp(loglik))
+  return(sum(f))
 }
-# Posterior kernel
-posterior <- function(beta, sigma2){
+# Log posterior kernel
+logposterior <- function(x){
+  beta <- x[-4]
+  sigma2 <- x[4]
   stopifnot(length(beta) == 3)
-  return ( likelihood(beta, sigma2) * prior_beta(beta, sigma2) * prior_sigma2(sigma2) )
+  return (loglik(beta, sigma2) + logprior_beta(beta, sigma2) + logprior_sigma2(sigma2)) 
 }
-
 ```
 
 ### Simulate a sample of $5000$ draws from the joint posterior distribution of $(\beta,\sigma)$  
 
-The posteriorn density is, up to the normalizing constant (I omit the data in the notation for simplicity)
+Implementation of a random-walk Metropolis-Hastings algorithm.
 
-\begin{equation}
-  f(\beta, \sigma^2) \propto (\sigma^2)^{-N/2-3/2-a-1} \exp\left[-\frac{1}{2\sigma^2}\sum_{i=1}^{N}(y_i-x_i^T\beta)^2 \right] \exp\left[ \frac{-1}{2\sigma^2g}(\beta-B)^T(X^TX)(\beta-B) \right] e^{-b/\sigma^2}
-\end{equation}
-
-And the full conditionals are:
-
-\begin{equation}
-  f(\sigma^2 | \beta) \propto (\sigma^2)^{-N/2-3/2-a-1} \exp\left[-\frac{1}{\sigma^2}\left(\frac{1}{2}\sum_{i=1}^{N}(y_i-x_i^T\beta)^2 + \frac{1}{2g}(\beta-B)^T(X^TX)(\beta-B) +b \right) \right]
-\end{equation}
-
-for $\sigma^2 | \beta$, which is an inverse-gamma distribution, let's say $\sigma^2 | \beta \sim \mathcal{IG}(\tilde{a}, \tilde{b})$, and
-
-\begin{align}
-  f(\beta | \sigma^2) &\propto \exp\left[-\frac{1}{2\sigma^2}\left(\sum_{i=1}^{N}(y_i-x_i^T\beta)^2 + \frac{1}{g}(\beta-B)^T(X^TX)(\beta-B)\right) \right] \\
-    &= \exp\left[ -\frac{1}{2\sigma^2} \left( (X^{-1}y-\beta)^TX^TX(X^{-1}y-\beta) + \frac{1}{g}(B-\beta)X^TX(B-\beta) \right) \right]
-\end{align}
-
-for $\beta | \sigma^2$, which is the product of two normal densities, with mean values $X^{-1}y$ and $B$ respectively, 
-and covariance matrices that differ only for a factor $1/g$. 
-
-In general, for two multivariate normal densities of parameters $(\mu_1, \Sigma_1)$ and $(\mu_2, \Sigma_2)$, the product is again a normal density
-of parameters $(\mu, \Sigma)$ given by
-
-\begin{align}
-  \mu &= \Sigma_2 (\Sigma_1 + \Sigma_2)^{-1} \mu_1 + \Sigma_1 (\Sigma_1 + \Sigma_2)^{-1} \mu_2 \\
-  \Sigma &= \Sigma_1 (\Sigma_1 + \Sigma_2)^{-1} \Sigma_2
-\end{align}
-
-In this case they are:
-
-\begin{align}
-  \mu &=  \\
-  \Sigma &= \frac{1}{2\sigma^2(1+g)}X^TX
-\end{align}
-
-Given the form of the two full conditionals, it might be worth to implement a Gibbs sampler.
+Evaluation of the Laplace's approximation to use as a proposal
+```{r echo=TRUE}
+start   <- c(B,1) 
+laplace <- optim(par=start, fn=logposterior, control=list(fnscale=-1), hessian=TRUE)
+mode    <- laplace$par
+V       <- -solve(laplace$hessian) 
+```
 
 ```{r echo=TRUE}
-# Function to sample from the conditional distribution of sigma^2 given beta
-sample_s2_given_b <- function(sigma2, beta){
-  stopifnot(length(beta) == 3)
-  # parameter
-  aa <- a + N/2 + 3/2
-  bb <- (sum((y - X%*%beta)^2) + t(beta-B)%*%XX%*%(beta-B) / g + b) / 2 
-  # proposal density
-  res <- rinvgamma(sigma2, shape=aa, rate=bb)
-  return (res)
-}
-# Function to sample from the conditional distribution of beta given sigma^2
-sample_b_given_s2 <- function(beta, sigma2){
-  stopifnot(length(beta) == 3)
-  # parameter
-  m <- solve(X)%*%y
-  mu <- B
-  S <-  
-  # proposal density
-  B_prop <- rnorm(1, mean=mu, sd=sqrt(var))
-  acceptance_prob <- min(1, target(c(A, B_prop)) * dnorm(B_curr, mean=mu, sd=sqrt(var)) / ( target(c(A, B_curr)) * dnorm(B_prop, mean=mu, sd=sqrt(var)) ))
-  if (runif(1) < acceptance_prob){
-    return(B_prop)  # Accept the proposal
-  }else{
-    return(B_curr)  # Reject the proposal
+# Random Walk Metropolis-Hastings
+RWMH <- function(x_start, logtarget, n){
+  samples <- matrix(nrow=n+1, ncol=4)
+  samples[1,] <- x_start
+  x_curr <- x_start
+  # iteration
+  for (i in 1:n){
+    # sample from proposal
+    z_prop <- mvrnorm(n=1, mu=c(0,0,0,0), Sigma=V)
+    # calculate acceptance probability
+    x_prop <- x_curr + z_prop
+    # acceptance_prob <- min(1, target(x_prop) / target(x_curr))
+    acceptance_prob <- min(0, logtarget(x_prop) - logtarget(x_curr))
+    # accept or reject the proposal step
+    if (log(runif(1)) < acceptance_prob) {
+      x_curr <- x_prop
+    }
+    samples[i+1,] <- x_curr
   }
+  # return samples
+  samples <- samples[-1,]
+  return (samples)
 }
-# Function to perform Metropolis within Gibbs sampling
-# metropolis_within_gibbs <- function(n, A_start, B_start) {
-#   samples <- matrix(nrow = n, ncol = 2)
-#   A_curr <- A_start
-#   B_curr <- B_start
-#   for (i in 1:n) {
-#     A_curr <- sample_A_given_B(B_curr, A_curr)
-#     B_curr <- sample_B_given_A(A_curr, B_curr)
-#     samples[i, ] <- c(A_curr, B_curr)
-#   }
-#   return(samples)
-# }
 ```
 
+Sampling
 ```{r echo=TRUE}
-
-```
-
-```{r echo=TRUE}
+burn_in <- 500
 n <- 5000
+x_start <- c(B,1)  # Initial value of the Markov chain
+# Run the Random Walk Metropolis-Hastings algorithm
+samples <- RWMH(x_start, logposterior, n+burn_in)
+samples <- samples[-(1:burn_in),]
 ```
+
+```{r echo=FALSE}
+# trace  to check convergence
+par(mfrow = c(1, 4))
+plot(1:n, samples[,1], type="l", xlab = expression(i), ylab = expression(beta[0]))
+plot(1:n, samples[,2], type="l", xlab = expression(i), ylab = expression(beta[1]))
+plot(1:n, samples[,3], type="l", xlab = expression(i), ylab = expression(beta[2]))
+plot(1:n, samples[,4], type="l", xlab = expression(i), ylab = expression(sigma^2))
+# Restore default plot options
+par(mfrow = c(1, 1))
+```
+
+Correlation analysis
+```{r echo=TRUE}
+acf(samples)
+```
+
+```{r echo=FALSE}
+par(mfrow = c(1,4))
+hist(samples[,1], main=NULL, xlab=expression(beta[0]))
+hist(samples[,2], main=NULL, xlab=expression(beta[1]))
+hist(samples[,3], main=NULL, xlab=expression(beta[2]))
+hist(sqrt(samples[,4]), main=NULL, xlab = expression(sigma))
+par(mfrow = c(1, 1))
+```
+
+Mean values: beta0=`r mean(samples[,1])`, beta1=`r mean(samples[,2])`, beta2=`r mean(samples[,3])`, sigma2=`r mean(samples[,4])`. 
+
+The lenght of the burn-in period was chosen looking at the trace plots.
+Given the high correlation structure of the sample, we do not expect the estimation to be reliable, especially for $\sigma^2$.
+To improve the accuracy, some correlation reduction technique should be employed, such as thinning, leading to a substantial increase of the computation time.
+
+As an alternative, we can note that
+
+\begin{equation}
+  f(\beta, \sigma^2) = f(\beta | \sigma^2) f(\sigma^2)
+\end{equation}
+
+With $\sigma^2 \sim \mathcal{IG}(a,b)$ and $\beta | \sigma^2$ is the posterior associated to the Zellner's g-prior, 
+that is $\beta | \sigma^2 \sim \mathcal{N}_3(q\hat{B}+(1-q)B, q\sigma^2(X^TX)^{-1})$, where $q=g/(1+g)$ and $\hat{B}=(X^TX)^{-1}X^Ty$.
+Thus we can directly sample from these two distributions.
+
+```{r echo=TRUE}
+q <- g / (1+g)
+Bhat <- Y %*% t(X) %*% y
+mean <- q*Bhat + (1-q)*B
+joint_sample <- function(n){
+  # sample sigma^2
+  s2 <- rinvgamma(n, shape=a, rate=b)
+  b <- matrix(0, nrow=n, ncol=3)
+  # sample beta given the value of sigma^2
+  for (i in 1:n){
+    S <- q * s2[i] * Y
+     b[i,] <- rmvnorm(1, mean, S)
+  }
+  # return
+  return (cbind(b,s2))
+}
+```
+
+Sample again
+```{r echo=TRUE}
+samples <- matrix(0, nrow=n, ncol=4)
+samples <- joint_sample(n)
+```
+
+```{r echo=FALSE}
+par(mfrow = c(1,4))
+hist(samples[,1], main=NULL, xlab=expression(beta[0]))
+hist(samples[,2], main=NULL, xlab=expression(beta[1]))
+hist(samples[,3], main=NULL, xlab=expression(beta[2]))
+hist(sqrt(samples[,4]), main=NULL, xlab = expression(sigma))
+par(mfrow = c(1, 1))
+```
+
+Mean values: beta0=`r mean(samples[,1])`, beta1=`r mean(samples[,2])`, beta2=`r mean(samples[,3])`, sigma2=`r mean(samples[,4])`.
 
 ### Use the function \texttt{blinreg} in package `LearnBayes` to redo the simulation and compare the results.
 
@@ -579,27 +613,114 @@ hist(sigma_simul, main=NULL, xlab = expression(sigma))
 par(mfrow = c(1, 1))
 ```
 
+Mean values: beta0=`r mean(beta_simul[,1])`, beta1=`r mean(beta_simul[,2])`, beta2=`r mean(beta_simul[,3])`, sigma2=`r mean(sigma_simul)`.
+
+As expected, looking qualitatively at the histograms, it is possible to see how more consistent results are obtained for the second sample,
+at least concerning the mean value. At the same time, a smaller variance is obtained.
 
 ### From the simulated samples, compute the posterior means and standard deviations of $\beta_1$ and $\beta_2$.
 
 ```{r echo=TRUE}
+beta1 <- mean(samples[,2])
+dbeta1 <- sd(samples[,2])
+beta2 <- mean(samples[,3])
+dbeta2 <- sd(samples[,3])
+
 beta1_simul <- mean(beta_simul[,2])
 dbeta1_simul <- sd(beta_simul[,2])
 beta2_simul <- mean(beta_simul[,3])
 dbeta2_simul <- sd(beta_simul[,3])
 ```
 
+Second sample
+
+| Parameter  | Mean value         | Standard deviation     |
+|------------|--------------------|------------------------|
+| $\beta_1$  | `r round(beta1,4)` | `r round(dbeta1,4)`    |
+| $\beta_2$  | `r round(beta2,4)` | `r round(dbeta2,4)`    |
+
+
+Using the `blinreg` function
+
 | Parameter  | Mean value               | Standard deviation           |
 |------------|--------------------------|------------------------------|
 | $\beta_1$  | `r round(beta1_simul,4)` | `r round(dbeta1_simul,4)`    |
 | $\beta_2$  | `r round(beta2_simul,4)` | `r round(dbeta2_simul,4)`    |
 
-- Check the consistency of the posterior means and standard deviations with the least-squares estimates and associated standard errors from the `lm` run.
-- Suppose one is interested in estimating the expected `birthweight` for `male` and `female` babies of gestational weeks `36` and `40`. From the simulated draws of the posterior distribution construct 90\% interval estimates for 36-week males, 36-week females, 40-week males, and 40-week females.
-- Compare the results you obained with those you can have from function `blinregexpected`.
-- Suppose instead that one wishes to predict the birthweight for a 36- week male, a 36-week female, a 40-week male, and a 40-week female. Use the simulated data  from the posterior to construct 90\% prediction intervals for the birthweight for each type of baby.
-- Compare the results you obained with those you can have from function `blinregpred`
 
+
+### Check the consistency of the posterior means and standard deviations with the least-squares estimates and associated standard errors from the `lm` run.
+
+As anticipated, the mean values calculated with the MH algorithm, with an exception for $\sigma^2$, are quite similar to the results obtained with the `blinreg` function.
+The deviations are due to the correlation structure of the sample.
+
+The sample obtained from $f(\sigma^2)$ and $f(\beta | \sigma^2)$ gives very similar mean values, but with a smaller variance.
+
+Finally, the sample obtained from the `blinreg` function is the only one for which not only the mean values, but also the variance is compatible with the esitmations given by the least-squares fit. 
+This is not a surprise, since the `blinreg` function utilizes `lm` within it. 
+
+
+### Suppose one is interested in estimating the expected `birthweight` for `male` and `female` babies of gestational weeks `36` and `40`. From the simulated draws of the posterior distribution construct 90\% interval estimates for 36-week males, 36-week females, 40-week males, and 40-week females.
+
+```{r echo=TRUE}
+beta0 <- mean(samples[,1])
+CI_mean <- beta0 + beta1*c(36,36,40,40) + beta2*c(0,1,0,1)
+CI_inf <- qnorm(0.05, mean=CI_mean, sd=c(dbeta1, dbeta2))
+CI_sup <- qnorm(0.95, mean=CI_mean, sd=c(dbeta1, dbeta2))
+CI <- cbind(CI_inf, CI_sup)
+colnames(CI) <- c("CI_inf", "CI_sup")
+rownames(CI) <- c("36-Female","36-Male","40-Female","40-Male")
+print(CI)
+```
+
+
+### Compare the results you obained with those you can have from function `blinregexpected`.
+
+```{r echo=TRUE}
+X1 <- rbind(c(36,0),c(36,1),c(40,0),c(40,1))
+X1 <- cbind(1, X1)
+exp_response <- blinregexpected(X1, LBsimul)
+# Confidence interval construction
+exp_mean <- apply(exp_response, MARGIN=2, mean)
+exp_sd <- apply(exp_response, MARGIN=2, sd) 
+CI_inf <- qnorm(0.05, mean=exp_mean, sd=exp_sd)
+CI_sup <- qnorm(0.95, mean=exp_mean, sd=exp_sd)
+CI <- cbind(CI_inf, CI_sup)
+colnames(CI) <- c("CI_inf", "CI_sup")
+rownames(CI) <- c("36-Female","36-Male","40-Female","40-Male")
+print(CI)
+```
+
+Consistent with the fact of having used a sample with larger variance (the `blinreg` sample). Write this better, or even better use the same sample in both points. 
+
+### Suppose instead that one wishes to predict the birthweight for a 36- week male, a 36-week female, a 40-week male, and a 40-week female. Use the simulated data  from the posterior to construct 90\% prediction intervals for the birthweight for each type of baby.
+
+```{r echo=TRUE}
+pred_sample <- samples[,1:3]%*%t(X1) + rnorm(n)*samples[,4]
+CI_mean<- apply(pred_sample, MARGIN=2, mean)
+CI_sd <- apply(pred_sample, MARGIN=2, sd)
+CI_inf <- qnorm(0.05, mean=CI_mean, sd=CI_sd)
+CI_sup <- qnorm(0.95, mean=CI_mean, sd=CI_sd)
+CI <- cbind(CI_inf,CI_sup)
+colnames(CI) <- c("CI_inf", "CI_sup")
+rownames(CI) <- c("36-Female","36-Male","40-Female","40-Male")
+print(CI)
+```
+
+### Compare the results you obained with those you can have from function `blinregpred`
+
+```{r echo=TRUE}
+pred_response <- blinregpred(X1, LBsimul)
+# Confidence interval construction
+pred_mean <- apply(pred_response, MARGIN=2, mean)
+pred_sd <- apply(pred_response, MARGIN=2, sd) 
+CI_inf <- qnorm(0.05, mean=pred_mean, sd=pred_sd)
+CI_sup <- qnorm(0.95, mean=pred_mean, sd=pred_sd)
+CI <- cbind(CI_inf, CI_sup)
+colnames(CI) <- c("CI_inf", "CI_sup")
+rownames(CI) <- c("36-Female","36-Male","40-Female","40-Male")
+print(CI)
+```
 
 ```{r echo=FALSE}
 # Clear workspace
