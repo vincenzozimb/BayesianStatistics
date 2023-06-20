@@ -724,12 +724,92 @@ print(CI)
 
 ```{r echo=FALSE}
 # Clear workspace
-# rm(list=ls())
+rm(list=ls())
 ```
 
 <!--------------------------------------------------------------------------------------------------------------------------------------------------->
 
-# Exercise 3
+# Exercise 3: Athlete
+    
+For a given professional athlete, his or her performance level will tend to increase until midcareer and then deteriorate until retirement. 
+Let $y_i$ denote the number of home runs hit by the professional baseball player Mike Schmidt in $n_i$ at-bats (opportunities) during the ith season. 
+The datafile `schmidt` in `LearnBayes` package gives Schmidt's age, $y_i$, and $n_i$ for all 18 years of his baseball career. 
+If $y_i$ is assumed to be $binomial(n_i, p_i)$, where $p_i$ denotes the probability of hitting a home run during the ith season, 
+then a reasonable model for the ${p_i}$ is the logit quadratic model of the form:
+
+$$
+    \log \left(\frac{p_i}{1 - p_i} \right) = \beta_0 + \beta_1 AGE_i + \beta_2 AGE^2_i
+$$
+
+where $AGE_i$ is Schmidt's age during the ith session. 
+Assume that the regression vector $\boldsymbol{\beta} = (\beta_0,\beta_1, \beta_2)^\top$ has a uniform non-informative prior.
+  
+### Write a short R function to compute the logarithm of the posterior density of $\beta$.
+
+```{r echo=TRUE}
+data <- LearnBayes::schmidt
+y <- data$HR
+n <- data$AB
+age <- data$Age
+```
+
+Let $N=18$ and $g_i(\beta) = \beta_0 + \beta_1 AGE_i + \beta_2 AGE_i^2$. The posterior density for $\beta$ is given by, using Bayes's theorem:
+
+\begin{align}
+  f(\beta | \textbf{y}) &\propto f(\textbf{y} | \beta) f(\beta) \propto f(\textbf{y} | \beta) \\
+  &\propto \prod_{i=1}^{N} f(y_i | \beta) = \prod_{i=1}^{N} \binom{n_i}{y_i} p_i^{y_i} (1-p_i)^{n_i-y_i}  
+\end{align}
+
+where the dependence on $\beta$ is in $p_i = p_i(\beta)$. Exploiting this dependence:
+
+\begin{align}
+  f(\beta | \textbf{y}) &\propto \prod_{i=1}^{N} \binom{n_i}{y_i} \left(\frac{p_i}{1-p_i}\right)^{y_i} (1-p_i)^{n_i} \\
+  &= \prod_{i=1}^{N} \binom{n_i}{y_i} e^{g_i(\beta)y_i} \left( \frac{e^{g_i(\beta)}}{1+e^{g_i(\beta)}} \right)^{n_i}
+\end{align}
+
+Therefore the log-posterior density is given, up to an additive constant, by 
+
+\begin{equation}
+  \log{f(\beta | \textbf{y})} = \sum_{i=1}^{N} \left[ \log{\binom{n_i}{y_i}} + g_i(\beta) (y_i + n_i) - n_i \log{(1+e^{g_i(\beta)})} \right]
+\end{equation}
+
+```{r echo=TRUE}
+g_func <- function(beta){
+  stopifnot(length(beta) == 3)
+  res <- beta[1] + beta[2]*age + beta[3]*age^2
+  return (res)
+}
+logposterior <- function(beta){
+  stopifnot(length(beta) == 3)
+  g <- g_func(beta)
+  res <- lchoose(n,y) + g*(y+n) - n*log(1+exp(g))
+  res <- sum(res)
+  return (res)
+}
+```
+
+
+### Find the laplace approximation of the posterior for $\boldsymbol{\beta}$, build an R function to compute it. 
+
+```{r echo=TRUE}
+start   <- c(0,0,0)
+control <-list(fnscale=-1, ndeps=rep(1e-6, length(start)))
+laplace <- optim(par=start, fn=logposterior, control=control, hessian=TRUE)
+mode    <- laplace$par
+V       <- -solve(laplace$hessian) 
+```
+
+```{r echo=TRUE}
+# Laplace approximation
+proposal <- function(beta){
+  return (dmvnorm(beta, mode, V, log=FALSE))
+}
+```
+
+### Build a Metropolis-Hasting using the laplace approximation as proposal to simulate 5000 draws from the posterior distribution of $\boldsymbol{\beta}$.
+
+
+- One would expect the fitted parabola to have a concave down shape where $\beta_2 < 0$. Use the simulation output from the previous point to find the posterior probability that the fitted curve is concave down.
 
 <!--------------------------------------------------------------------------------------------------------------------------------------------------->
 
