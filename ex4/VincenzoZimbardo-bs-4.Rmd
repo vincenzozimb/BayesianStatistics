@@ -4,6 +4,11 @@ author: Vincenzo Zimbardo
 output: html_document
 ---
 
+```{r echo=FALSE}
+# Clear workspace
+rm(list=ls())
+```
+
 # Exercise 1: Mixture of binomials
 
 ```{r eval=TRUE, echo=FALSE}
@@ -13,24 +18,285 @@ m <- rpois(40, lambda=30)
 p <- sample(theta, size=40, replace=TRUE)
 y <- rbinom(40, size=m, prob=p)      
 ```
-In the below table there are $40$ observations $y_i \sim Bin(m_i, p_i)$. Data are also available in the file [homework-bs-4-1.Rdata](http://datascience.maths.unitn.it/~claudio/teaching/bs/2022/homework/homework-bs-4-1.Rdata) 
+In the below table there are $40$ observations $y_i \sim Bin(m_i, p_i)$.
 
 ```{r eval=TRUE, echo=FALSE}
 library(knitr)
 x <- cbind(m,y)
 colnames(x) <- c("m", "y")    
-save(x, file="homework-bs-4-1.Rdata")  
-kable(x)
+# save(x, file="homework-bs-4-1.Rdata")  
+kable(t(x))
 ```
 
-### Assume that the number of distinct $p_i$s is $4$. Implement in R a Gibbs sampler based on data augmentation following the model discussed in class and available in the notes [Ch-MCMC.pdf](http://datascience.maths.unitn.it/~claudio/teaching/bs/2022/pdfCh-MCMC.pdf)
+### Assume that the number of distinct $p_i$s is $4$. Implement in R a Gibbs sampler based on data augmentation
 
+Let $n$ be the number of observations, $k$ the number of classes. The index $i$ runs in $1, \dots, n$ while the index $j$ in $1, \dots, k$.
+
+For every $i$, let $q_i \in {1, \dots, k}$ and $q_i=j$ iff data $y_i$ belongs to class $j$. 
+The data augmentation matrix has components $z_{ij}=1$ iff $q_i=j$, and $z_{ij}=0$ otherwise. 
+
+The complete likelihood is:
+
+\begin{align}
+    f(y | \alpha, p, z) &= \prod_{i=1}^{n} \binom{m_i}{y_i} p_{q_i}^{y_i}(1-p_{q_i})^{m_i-y_i} \\
+    &= \prod_{i=1}^{n} \binom{m_i}{y_i} \prod_{j=1}^{k} [p_j^{y_i}(1-p_j)^{m_i-y_i}]^{z_{ij}} 
+\end{align}
+
+Prior on $z$. The row of $z$ are independent and constructed assuming a categorical distribution as a model, leading to:
+
+\begin{equation}
+    f(z | \alpha) = \prod_{i=1}^{n} \prod_{j=1}^{k} \alpha_i^{z_{ij}}
+\end{equation}
+
+Prior on $\alpha$. As the alphas form a discrete probability distribution, the vector $\alpha$ must belong to the simplex of order $k-1$. 
+Thus we choose as a prior distribution a Dirichlet distribution:
+
+\begin{equation}
+    f(\alpha) \propto \prod_{j=1}^{k} \alpha_j^{c_j-1}
+\end{equation}
+
+Prior on $p$. We assume each $p$ to be independent and distributed according to a beta distribution:
+
+\begin{equation}
+    f(p) \propto \prod_{j=1}^{k} p_j^{a_j-1}(1-p_j)^{b_j-1}
+\end{equation}
+
+Applying Bayes' theorem, the posterior distribution is:
+
+\begin{equation}
+    f(\alpha, p, z) \propto f(y | \alpha, p, z) f(z | \alpha) f(\alpha) f(p)
+\end{equation}
+
+In order to implement a Gibbs sampler, we need the full conditionals. Exploiting conjugacy we obtain:
+
+\begin{align}
+    \alpha | p, z, y &\sim \mathcal{Dir}(c_1+z_{+1}, \dots, c_k+z_{+k}) \\
+    p_j | \alpha, z, y, &\sim \mathcal{Beta}(a_j+y_{+j}, b_j+m_{+j}-y_{+j}) \\
+    \mathbb{P}(z_{ij}=1 | \alpha, p, y) &\propto \alpha_j p_j^{y_i} (1-p_j)^{m_i-y_i} =: r_{ij} 
+\end{align}
+
+where $z_{+j}:=\sum_{i=1}^{n}z_{ij}$, $y_{+j}:=\sum_{i=1}^{n}z_{ij}y_i$ and $m_{+j}:=\sum_{i=1}^{n}z_{ij}m_i$.
+The meaning of the last one is $q_i | \alpha, p, y \sim \mathcal{Cat}(r_{i1}, \dots, r_{ik})$.
+
+```{r echo=TRUE}
+# initial parameters
+
+
+```
+
+```{r echo=TRUE}
+library(DirichletReg)
+# sampling from full conditional for alpha
+sample_alpha <- function(z, c){
+    # input control
+    stopifnot(nrow(z)==n && ncol(z)==k)
+    stopifnot(length(c)==k) # hyper-parameter for the Dirichlet distribution f(alpha)
+    # function
+    z_plus <- colSums(z)
+    c_new <- c + z_plus
+    # return
+    rdirichlet(1, c_new)
+}
+
+# sampling from full conditional for p
+sample_p <- function(z, a, b){
+    # input control
+    stopifnot(nrow(z)==n && ncol(z)==k)
+    stopifnot(length(a)==k && length(b)==k) # hyper-parameters for the beta distributions f(p)
+    # function
+    y_plus <- y %*% z
+    m_plus <- m %*% z
+    a_new <- a + y_plus
+    b_new <- b + m_plus - y_plus    
+    samples <- c()
+    for (j in 1:k) {
+       samples[j] <- rbeta(1, a_new[j], b_new[j]) 
+    }
+    # return
+    return (samples)    
+}
+
+# sampling from full conditional for z
+sample_z <- function(alpha, p){
+    # input control
+    stopifnot(length(alpha)==k)
+    stopifnot(length(p)==k)
+    # function
+    r <- matrix(nrow=n, ncol=k)
+    for (i in 1:n) {
+       for (j in 1:k) {
+          r[i,j] <- alpha[j] * p[j]^y[i] * (1-p[j])^(m[i]-y[i])
+       }
+    }
+    for (i in i:n) {
+       f[i] <- sample(c(1:k), size=1, prob=r[i,])
+    }
+    z <- matrix(0, nrow=n, ncol=k)
+    for (i in 1:n) {
+       z[i,f[i]] <- 1
+    }
+    # return
+    return (z)    
+}
+
+# Gibbs sampler
+gibbs <- function(n, alpha_0, p_0, z_0, a, b, c){
+
+    # input control
+    stopifnot(nrow(z_0)==n && ncol(z_0)==k)
+    stopifnot(length(alpha_0)==k)
+    stopifnot(length(p_0)==k)
+    stopifnot(length(a)==k && length(b)==k && length(c)==k)
+
+    # initial values
+    alpha_curr <- alpha_0
+    p_curr <- p_0
+    z_curr <- z_0
+  
+    # parameters to be monitored
+    alpha_samples <- matrix(nrow = n, ncol = k)
+    p_samples <- matrix(nrow = n, ncol = k)
+
+    # iteration
+    for (i in 1:n) {
+        alpha_curr <- sample_alpha(z_curr, c)
+        p_curr <- sample_p(z_curr, a, b)
+        z_curr <- sample_z(alpha_curr, p_curr)
+        alpha_samples[i,] <- alpha_curr
+        p_samples[i, ] <- p_curr
+    }
+    
+}
+```
 
 ### Run the Gibbs sampler for the above data and summurize your finding
 
 
 ### Use JAGS to implement the same model and compare the results  
 
+```{r echo=TRUE}
+# parameters
+k <- 4
+n <- length(y)  
+# hyper-parameters for the beta distribution
+a <- rep(0.5,k)
+b <- rep(0.5,k)
+# hyper-parameters for the Dirichlet distribution
+c <- rep(1,k)
+
+data_list <- list(
+  "y" = y,
+  "m" = m,
+  "n" = n,
+  "k" = k,
+  "a" = a,
+  "b" = b,
+  "c" = c
+)
+str(data_list)
+```
+
+```{r echo=TRUE}
+library(rjags)
+library(R2jags)
+
+# Define the model
+binomial_mixture <- "model {
+    # prior on alpha
+    alpha ~ ddirch(c[])
+    
+    # prior on q
+    for (i in 1:n){
+        q[i] ~ dcat(alpha[])
+    }
+
+    # prior on gamma
+    for (j in 1:k) {
+        gam[j] ~ dbeta(a[j], b[j])
+    }
+
+    # Likelihood
+    for (i in 1:n) { 
+        y[i] ~ dbin(gam[q[i]], m[i])
+    }
+
+}"
+
+# Specify desired parameters for inference
+parameters <- c("alpha", "gam")
+
+# Run
+nsamples <- 1000
+n.burnin <- 0
+n.thin   <- 1
+
+MCMCrun <- jags(
+  data = data_list,
+  parameters.to.save = parameters,
+  model.file = textConnection(binomial_mixture),
+  n.burnin = n.burnin,
+  n.iter = n.thin*nsamples + n.burnin,
+  n.chains = 1,
+  n.thin = n.thin,
+  progress.bar = "none",
+  quiet = TRUE,
+  DIC = FALSE
+)
+```
+
+```{r echo=TRUE}
+# Posterior samples extraction
+samples_list <- MCMCrun$BUGSoutput$sims.list
+str(samples_list)
+# Get the number of parameters and samples
+num_params <- ncol(samples_list[[1]])
+num_samples <- nrow(samples_list[[1]])
+# Convert list to matrix
+samples <- cbind(samples_list$alpha, samples_list$gam)
+names <- c()
+for (i in 1:num_params) {
+   names <- c(names, paste0("alpha[", i, "]"))
+}
+for (i in 1:num_params) {
+   names <- c(names, paste0("gamma[", i, "]"))
+}
+colnames(samples) <- names
+# Define the maximum number of rows to display
+max_row <- 4
+# Display a subset of rows and columns from the large matrix
+subset_matrix <- samples[1:max_row, ]
+round(subset_matrix, 4)
+```
+
+```{r echo=TRUE}
+# Summary
+summ <- MCMCrun$BUGSoutput$summary
+round(summ,4)
+```
+
+MCMC plots 
+```{r echo=FALSE, eval=FALSE}
+# trace  to check convergence ## DON'T RUN, VARIABLE NAMES HAS BEEN CHANGED
+par(mfrow = c(1, 2))
+plot(1:nsamples,samples[,1], type="l", main=NULL, xlab = expression(i), ylab = expression(alpha[0]^(i)))
+plot(1:nsamples,samples[,num_params+1], type="l", main=NULL, xlab = expression(i), ylab = expression(gamma[0]^(i)))
+# Restore default plot options
+par(mfrow = c(1, 1))
+# correlation
+acf(samples)
+```
+
+Histograms
+
+```{r echo=FALSE}
+par(mfrow = c(1, 2))
+for (i in 1:num_params) {
+    hist(samples[,i], main=colnames(samples)[i], xlab=NULL)
+    hist(samples[,num_params+i], main=colnames(samples)[num_params+i], xlab=NULL)
+}
+# Restore default plot options
+par(mfrow = c(1, 1))
+```
 
 ### Assume now the number of components (distinct $p_i$) is unknown. Implement in R a non parametric Gibbs sampler with stick-breaking approach and Dirichlet prior
 
