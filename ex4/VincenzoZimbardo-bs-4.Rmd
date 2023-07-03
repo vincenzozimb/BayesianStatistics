@@ -1,0 +1,38 @@
+---
+title: Homework 4 - Bayesian Statistics 2023
+author: Vincenzo Zimbardo 
+output: html_document
+---
+
+# Exercise 1: Mixture of binomials
+
+```{r eval=TRUE, echo=FALSE}
+set.seed(1236)    
+theta <- runif(4)
+m <- rpois(40, lambda=30)
+p <- sample(theta, size=40, replace=TRUE)
+y <- rbinom(40, size=m, prob=p)      
+```
+In the below table there are $40$ observations $y_i \sim Bin(m_i, p_i)$. Data are also available in the file [homework-bs-4-1.Rdata](http://datascience.maths.unitn.it/~claudio/teaching/bs/2022/homework/homework-bs-4-1.Rdata) 
+
+```{r eval=TRUE, echo=FALSE}
+library(knitr)
+x <- cbind(m,y)
+colnames(x) <- c("m", "y")    
+save(x, file="homework-bs-4-1.Rdata")  
+kable(x)
+```
+
+### Assume that the number of distinct $p_i$s is $4$. Implement in R a Gibbs sampler based on data augmentation following the model discussed in class and available in the notes [Ch-MCMC.pdf](http://datascience.maths.unitn.it/~claudio/teaching/bs/2022/pdfCh-MCMC.pdf)
+
+
+### Run the Gibbs sampler for the above data and summurize your finding
+
+
+### Use JAGS to implement the same model and compare the results  
+
+
+### Assume now the number of components (distinct $p_i$) is unknown. Implement in R a non parametric Gibbs sampler with stick-breaking approach and Dirichlet prior
+
+
+### Run the non parametric Gibbs sampler for the above data and summurize your finding. In particular discuss the posterior distribution of the number of clusters
