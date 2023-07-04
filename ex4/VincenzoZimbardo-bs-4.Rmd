@@ -79,18 +79,31 @@ where $z_{+j}:=\sum_{i=1}^{n}z_{ij}$, $y_{+j}:=\sum_{i=1}^{n}z_{ij}y_i$ and $m_{
 The meaning of the last one is $q_i | \alpha, p, y \sim \mathcal{Cat}(r_{i1}, \dots, r_{ik})$.
 
 ```{r echo=TRUE}
-# initial parameters
-
-
+k <- 4
+n <- length(y)  
+# hyper-parameters for the beta distribution
+a <- rep(0.5,k)
+b <- rep(0.5,k)
+# hyper-parameters for the Dirichlet distribution
+c <- rep(1,k)
+# initial parameters (randomly generated)
+alpha_0 <- runif(k)
+alpha_0 <- alpha_0 / sum(alpha_0)
+p_0 <- runif(k)
+z_0 <- matrix(0, nrow=n, ncol=k)
+for (i in 1:n) {
+   idx <- sample(1:k, 1)
+   z_0[i, idx] <- 1
+}
 ```
 
 ```{r echo=TRUE}
 library(DirichletReg)
 # sampling from full conditional for alpha
-sample_alpha <- function(z, c){
+sample_alpha <- function(z){
     # input control
-    stopifnot(nrow(z)==n && ncol(z)==k)
-    stopifnot(length(c)==k) # hyper-parameter for the Dirichlet distribution f(alpha)
+    stopifnot(nrow(z)==n)
+    stopifnot(ncol(z)==k)
     # function
     z_plus <- colSums(z)
     c_new <- c + z_plus
@@ -99,10 +112,10 @@ sample_alpha <- function(z, c){
 }
 
 # sampling from full conditional for p
-sample_p <- function(z, a, b){
+sample_p <- function(z){
     # input control
-    stopifnot(nrow(z)==n && ncol(z)==k)
-    stopifnot(length(a)==k && length(b)==k) # hyper-parameters for the beta distributions f(p)
+    stopifnot(nrow(z)==n)
+    stopifnot(ncol(z)==k)
     # function
     y_plus <- y %*% z
     m_plus <- m %*% z
@@ -128,8 +141,9 @@ sample_z <- function(alpha, p){
           r[i,j] <- alpha[j] * p[j]^y[i] * (1-p[j])^(m[i]-y[i])
        }
     }
-    for (i in i:n) {
-       f[i] <- sample(c(1:k), size=1, prob=r[i,])
+    f <- rep(0,n)
+    for (i in 1:n) {
+       f[i] <- sample(1:k, size=1, prob=r[i,])
     }
     z <- matrix(0, nrow=n, ncol=k)
     for (i in 1:n) {
@@ -140,13 +154,13 @@ sample_z <- function(alpha, p){
 }
 
 # Gibbs sampler
-gibbs <- function(n, alpha_0, p_0, z_0, a, b, c){
+gibbs <- function(n_samples, alpha_0, p_0, z_0){
 
     # input control
-    stopifnot(nrow(z_0)==n && ncol(z_0)==k)
+    stopifnot(nrow(z_0)==n)
+    stopifnot(ncol(z_0)==k)
     stopifnot(length(alpha_0)==k)
     stopifnot(length(p_0)==k)
-    stopifnot(length(a)==k && length(b)==k && length(c)==k)
 
     # initial values
     alpha_curr <- alpha_0
@@ -154,36 +168,91 @@ gibbs <- function(n, alpha_0, p_0, z_0, a, b, c){
     z_curr <- z_0
   
     # parameters to be monitored
-    alpha_samples <- matrix(nrow = n, ncol = k)
-    p_samples <- matrix(nrow = n, ncol = k)
+    alpha_samples <- matrix(nrow = n_samples, ncol = k)
+    p_samples <- matrix(nrow = n_samples, ncol = k)
 
     # iteration
-    for (i in 1:n) {
-        alpha_curr <- sample_alpha(z_curr, c)
-        p_curr <- sample_p(z_curr, a, b)
+    for (i in 1:n_samples) {
+        alpha_curr <- sample_alpha(z_curr)
+        p_curr <- sample_p(z_curr)
         z_curr <- sample_z(alpha_curr, p_curr)
+        # saving
         alpha_samples[i,] <- alpha_curr
         p_samples[i, ] <- p_curr
     }
-    
+
+    # return
+    return (list(alpha_samples=alpha_samples, p_samples=p_samples))    
 }
 ```
 
 ### Run the Gibbs sampler for the above data and summurize your finding
 
+Perform sampling
+
+```{r echo=TRUE}
+n_samples <- 1000
+samples <- gibbs(n_samples, alpha_0, p_0, z_0)
+str(samples)
+# convert into matrix
+names <- c()
+for (j in 1:k) {
+   names <- c(names, paste0("alpha[", j, "]"))
+}
+for (j in 1:k) {
+   names <- c(names, paste0("p[", j, "]"))
+}
+samples <- cbind(samples$alpha_samples, samples$p_samples)
+colnames(samples) <- names
+```
+
+MCMC plots 
+
+```{r echo=FALSE, eval=TRUE}
+# trace  to check convergence 
+par(mfrow = c(1, k))
+for (j in 1:k) {
+    plot(1:n_samples,samples[,j], type="l", main=NULL, xlab = expression(i), ylab = colnames(samples)[j])
+}
+for (j in 1:k) {
+    plot(1:n_samples,samples[,k+j], type="l", main=NULL, xlab = expression(i), ylab = colnames(samples)[k+j])   
+}
+# Restore default plot options
+par(mfrow = c(1, 1))
+# correlation
+acf(samples)
+```
+
+Histograms
+
+```{r echo=FALSE}
+par(mfrow = c(1, k))
+for (j in 1:k) {
+    hist(samples[,j], main=colnames(samples)[j], xlab=NULL)
+}
+for (j in 1:k) {
+    hist(samples[,k+j], main=colnames(samples)[k+j], xlab=NULL)
+}
+# Restore default plot options
+par(mfrow = c(1, 1))
+```
+
+Summary
+
+```{r echo=TRUE}
+means <- colMeans(samples)
+sds <- apply(samples, 2, sd)
+summ <- rbind(means, sds)
+colnames(summ) <- names
+rownames(summ) <- c("mean", "sd")
+kable(summ)
+```
+
+
 
 ### Use JAGS to implement the same model and compare the results  
 
 ```{r echo=TRUE}
-# parameters
-k <- 4
-n <- length(y)  
-# hyper-parameters for the beta distribution
-a <- rep(0.5,k)
-b <- rep(0.5,k)
-# hyper-parameters for the Dirichlet distribution
-c <- rep(1,k)
-
 data_list <- list(
   "y" = y,
   "m" = m,
@@ -210,23 +279,23 @@ binomial_mixture <- "model {
         q[i] ~ dcat(alpha[])
     }
 
-    # prior on gamma
+    # prior on p
     for (j in 1:k) {
-        gam[j] ~ dbeta(a[j], b[j])
+        p[j] ~ dbeta(a[j], b[j])
     }
 
     # Likelihood
     for (i in 1:n) { 
-        y[i] ~ dbin(gam[q[i]], m[i])
+        y[i] ~ dbin(p[q[i]], m[i])
     }
 
 }"
 
 # Specify desired parameters for inference
-parameters <- c("alpha", "gam")
+parameters <- c("alpha", "p")
 
 # Run
-nsamples <- 1000
+n_samples <- 1000
 n.burnin <- 0
 n.thin   <- 1
 
@@ -235,7 +304,7 @@ MCMCrun <- jags(
   parameters.to.save = parameters,
   model.file = textConnection(binomial_mixture),
   n.burnin = n.burnin,
-  n.iter = n.thin*nsamples + n.burnin,
+  n.iter = n.thin*n_samples + n.burnin,
   n.chains = 1,
   n.thin = n.thin,
   progress.bar = "none",
@@ -248,17 +317,14 @@ MCMCrun <- jags(
 # Posterior samples extraction
 samples_list <- MCMCrun$BUGSoutput$sims.list
 str(samples_list)
-# Get the number of parameters and samples
-num_params <- ncol(samples_list[[1]])
-num_samples <- nrow(samples_list[[1]])
 # Convert list to matrix
-samples <- cbind(samples_list$alpha, samples_list$gam)
+samples <- cbind(samples_list$alpha, samples_list$p)
 names <- c()
-for (i in 1:num_params) {
+for (i in 1:k) {
    names <- c(names, paste0("alpha[", i, "]"))
 }
-for (i in 1:num_params) {
-   names <- c(names, paste0("gamma[", i, "]"))
+for (i in 1:k) {
+   names <- c(names, paste0("p[", i, "]"))
 }
 colnames(samples) <- names
 # Define the maximum number of rows to display
@@ -268,18 +334,25 @@ subset_matrix <- samples[1:max_row, ]
 round(subset_matrix, 4)
 ```
 
+Summary
+
 ```{r echo=TRUE}
-# Summary
 summ <- MCMCrun$BUGSoutput$summary
-round(summ,4)
+summ <- round(summ,4)
+kable(summ)
 ```
 
 MCMC plots 
-```{r echo=FALSE, eval=FALSE}
-# trace  to check convergence ## DON'T RUN, VARIABLE NAMES HAS BEEN CHANGED
-par(mfrow = c(1, 2))
-plot(1:nsamples,samples[,1], type="l", main=NULL, xlab = expression(i), ylab = expression(alpha[0]^(i)))
-plot(1:nsamples,samples[,num_params+1], type="l", main=NULL, xlab = expression(i), ylab = expression(gamma[0]^(i)))
+
+```{r echo=FALSE, eval=TRUE}
+# trace  to check convergence 
+par(mfrow = c(1, k))
+for (j in 1:k) {
+    plot(1:n_samples,samples[,j], type="l", main=NULL, xlab = expression(i), ylab = colnames(samples)[j])
+}
+for (j in 1:k) {
+    plot(1:n_samples,samples[,k+j], type="l", main=NULL, xlab = expression(i), ylab = colnames(samples)[k+j])   
+}
 # Restore default plot options
 par(mfrow = c(1, 1))
 # correlation
@@ -289,10 +362,12 @@ acf(samples)
 Histograms
 
 ```{r echo=FALSE}
-par(mfrow = c(1, 2))
-for (i in 1:num_params) {
-    hist(samples[,i], main=colnames(samples)[i], xlab=NULL)
-    hist(samples[,num_params+i], main=colnames(samples)[num_params+i], xlab=NULL)
+par(mfrow = c(1, k))
+for (j in 1:k) {
+    hist(samples[,j], main=colnames(samples)[j], xlab=NULL)
+}
+for (j in 1:k) {
+    hist(samples[,k+j], main=colnames(samples)[k+j], xlab=NULL)
 }
 # Restore default plot options
 par(mfrow = c(1, 1))
