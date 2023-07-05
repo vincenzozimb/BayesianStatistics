@@ -23,8 +23,7 @@ In the below table there are $40$ observations $y_i \sim Bin(m_i, p_i)$.
 ```{r eval=TRUE, echo=FALSE}
 library(knitr)
 x <- cbind(m,y)
-colnames(x) <- c("m", "y")    
-# save(x, file="homework-bs-4-1.Rdata")  
+colnames(x) <- c("m", "y")
 kable(t(x))
 ```
 
@@ -89,7 +88,7 @@ c <- rep(1,k)
 # initial parameters (randomly generated)
 alpha_0 <- runif(k)
 alpha_0 <- alpha_0 / sum(alpha_0)
-p_0 <- runif(k)
+p_0 <- sort(runif(k))
 z_0 <- matrix(0, nrow=n, ncol=k)
 for (i in 1:n) {
    idx <- sample(1:k, 1)
@@ -220,7 +219,7 @@ for (j in 1:k) {
 # Restore default plot options
 par(mfrow = c(1, 1))
 # correlation
-acf(samples)
+# acf(samples)
 ```
 
 Histograms
@@ -334,14 +333,6 @@ subset_matrix <- samples[1:max_row, ]
 round(subset_matrix, 4)
 ```
 
-Summary
-
-```{r echo=TRUE}
-summ <- MCMCrun$BUGSoutput$summary
-summ <- round(summ,4)
-kable(summ)
-```
-
 MCMC plots 
 
 ```{r echo=FALSE, eval=TRUE}
@@ -356,7 +347,7 @@ for (j in 1:k) {
 # Restore default plot options
 par(mfrow = c(1, 1))
 # correlation
-acf(samples)
+# acf(samples)
 ```
 
 Histograms
@@ -373,7 +364,250 @@ for (j in 1:k) {
 par(mfrow = c(1, 1))
 ```
 
+Summary
+
+```{r echo=TRUE}
+summ <- MCMCrun$BUGSoutput$summary
+summ <- round(summ[,c(1,2)],4)
+kable(t(summ))
+```
+
+
+#### Comparison
+
+The results obtained with JAGS are expected to be more reliable. 
+The differences in the results are due to the correlation stucture of the sample generated with the implemented version of the Gibbs sampler.
+It can be notice also from the trace plots that the implemented version of the Gibbs sampler explore the configuration space in a weaker way:
+it seems that $2-3$ weakly connected regions are present, leading indeed to multimodal histograms for $p$.
+JAGS is able to efficienlty sample also the intermediate (of lower probability) regions. 
+
+
 ### Assume now the number of components (distinct $p_i$) is unknown. Implement in R a non parametric Gibbs sampler with stick-breaking approach and Dirichlet prior
 
+The stick-breaking construction of a Dirichlet process with base measure $H$ and concentration parameter $\alpha$ is as follows:
+
+\begin{align}
+    \beta_k &\sim \mathcal{Beta}(1,\alpha) \\
+    \pi_k &:= \beta_k \prod_{j=1}^{k-1}(1-\beta_j) \Leftrightarrow \pi \sim GEM(\alpha)  \\
+    \theta_k &\sim H
+\end{align}
+
+Then the random probability measure defined as $G:=\sum_{k=1}^{\infty}\pi_k \delta_{\theta_k}$ is distributed according to $G \sim DP(\alpha, H)$.
+
+
+A non-parametric bayesian mixture model is a model in the form:
+
+\begin{align}
+    y_i | \theta_i &\sim F_{\theta_i} \\
+    \theta_i | G &\sim G \\
+    G | \alpha, H &\sim DP(\alpha, H)
+\end{align}
+
+Being $G$ a realization of a Dirichlet process, it is a discrete probability distribution. This means that multiple $\theta_i$'s can take the 
+same value simultaneously, hence the interpretation of the model as a mixture model.
+
+We can rewrite the model using the stick-breaking construction. Let $z_i$ be a class assigment variable, taking value $j$ with probability $\pi_j$:
+
+\begin{align}
+    y_i | z_i, \{ \theta_j \}_j &\sim F_{\theta_{z_i}} \\
+    \theta_j &\sim H \\
+    z_i | \pi &\sim \mathcal{Cat}(\pi) \\
+    \pi &\sim GEM(\alpha)
+\end{align}
+
+From a practical point of view, we need to fix a sufficiently large upper bound $k$ and truncate the random measure $G$.
+In this way we obtain an approximate representation of the Dirichlet process.
+Of course the worst case scenario (complete absence of any prior information) would require at most to fix $k$ to the number of data. 
+The algorithm will select, based on the data, only the relevant classes, according to the non parametric paradigm. 
+
+In our model:
+
+\begin{align}
+    y_i | q_i, \{ p_j \}_j &\sim \mathcal{Bin}(m_i,p_{q_i}) \\
+    p_j &\sim \mathcal{Dir}(\alpha/k, \dots, \alpha/k) \\
+    q_i | \pi &\sim \mathcal{Cat}(\pi_1, \dots, \pi_k) \\
+    \pi &\sim GEM(\alpha)
+\end{align}
+
+#### Sample from the posterior: Blocked Gibbs sampler.
+
+The state space of the Gibbs sampler is $\{ p=(p_1, \dots, p_k), \pi=(\pi_1, \dots, \pi_k), q_1, \dots, q_n \}$. 
+The sampling iteration procedes as follows:
+
+1. Sample $p | q_1, \dots, q_n, y$
+
+2. Sample $q_1, \dots, q_n | p, \pi, y$
+
+3. Sample $\pi | q_1, \dots, q_n$
+
+Where:
+
+1. Exploiting conjugacy, each $p_j$ is sampled from a $\mathcal{Beta}(\alpha/k + y_{+j}, \alpha(k-1)/k + m_{+j} - y_{+j})$
+
+2. For each $i$, calculate $\pi_{ij} \propto \pi_j \binom{m_i}{y_i}p_j^{y_i}(1-p_j)^{m_i-y_i}$ and sample $q_i$ from the discrete distribution $\sum_{j=1}^{k}\pi_{ij}\delta_k(\cdot)$
+
+3. A stick-breaking procedure: $\pi_j = V_j \prod_{l=1}^{j-1}(1-V_l)$ except for $j=k$ for which $\pi_k = 1-\sum_{l=1}^{k-1} \pi_l$, 
+but with $V_j\sim\mathcal{Beta}(1+z_{+j}, 1+\sum_{l=j+1}^{k}z_{+l})$ 
+
+
+```{r echo=FALSE}
+# Clear workspace
+rm(list=setdiff(ls(), c("y", "m", "n")))
+```
+
+```{r echo=TRUE}
+# parameters
+k <- 40
+alpha <- 1
+```
+
+```{r echo=TRUE}
+# sample p
+sample_p <- function(z){
+    # input control
+    stopifnot(nrow(z)==n)
+    stopifnot(ncol(z)==k)
+    # function
+    y_plus <- y %*% z
+    m_plus <- m %*% z
+    a <- alpha/k + y_plus
+    b <- alpha*(k-1)/k + m_plus - y_plus    
+    samples <- c()
+    for (j in 1:k) {
+       samples[j] <- rbeta(1, a[j], b[j]) 
+    }
+    # return
+    return (samples)    
+}
+# construct z matrix from the q's
+z_matrix <- function(q){
+    # input control
+    stopifnot(length(q)==n)
+    # function
+    z <- matrix(0, nrow=n, ncol=k)
+    for (i in 1:n) {
+       z[i,q[i]] <- 1
+    }
+    # return
+    return (z)
+}
+# sample q's
+sample_z <- function(pi, p){
+    # input control
+    stopifnot(length(p)==k)
+    stopifnot(length(pi)==k)
+    # function
+    w <- matrix(0, nrow=n, ncol=k)
+    for (i in 1:n) {
+       for (j in 1:k) {
+        w[i,j] <- pi[j] * choose(m[i], y[i]) * p[j]^y[i] * (1-p[j])^(m[i]-y[i])
+       }
+    }
+    q <- c()
+    for (i in 1:n) {
+       q[i] <- sample(1:k, size=1, prob=w[i,])
+    }
+    # return
+    return (z_matrix(q))
+}
+# sample pi
+sample_pi <- function(z){
+    # input control
+    stopifnot(nrow(z)==n)
+    stopifnot(ncol(z)==k)
+    # function
+    z_plus <- colSums(z)
+    a <- 1 + z_plus
+    b <- c()
+    for (j in 1:(k-1)) {
+        b[j] <- 1 + sum(z_plus[(j+1):k])
+    }
+    b[k] <- 1
+    # sample V's
+    V <- c()
+    for (j in 1:k) {
+       V[j] <- rbeta(1, a[j], b[j])
+    }
+    pi <- c()
+    pi[1] <- V[1]
+    for (j in 2:(k-1)) {
+       pi[j] <- V[j] * prod(1-V[1:(j-1)])
+    }
+    pi[k] <- 1 - sum(pi)
+    # return
+    return (pi)
+}
+```
+
+```{r echo=TRUE}
+# initial parameters (randomly generated)
+pi_0 <- runif(k)
+pi_0 <- pi_0 / sum(pi_0)
+p_0 <- sort(runif(k))
+z_0 <- matrix(0, nrow=n, ncol=k)
+for (i in 1:n) {
+   idx <- sample(1:k, 1)
+   z_0[i, idx] <- 1
+}
+```
+
+```{r echo=TRUE}
+# # test functions
+# test_p <- sample_p(z_0)
+# test_z <- sample_z(pi_0, p_0)
+# test_pi <- sample_pi(z_0)
+```
+
+```{r echo=TRUE}
+# Gibbs sampler
+gibbs_np <- function(n_samples, p_0, z_0, pi_0){
+
+    # input control
+    stopifnot(nrow(z_0)==n)
+    stopifnot(ncol(z_0)==k)
+    stopifnot(length(pi_0)==k)
+    stopifnot(length(p_0)==k)
+
+    # initial values
+    pi_curr <- pi_0
+    p_curr <- p_0
+    z_curr <- z_0
+  
+    # parameters to be monitored
+    pi_samples <- matrix(nrow = n_samples, ncol = k)
+    p_samples <- matrix(nrow = n_samples, ncol = k)
+
+    # iteration
+    for (i in 1:n_samples) {
+        pi_curr <- sample_pi(z_curr)
+        stopifnot(sum(pi_curr)==1)
+        p_curr <- sample_p(z_curr)
+        z_curr <- sample_z(pi_curr, p_curr)
+        # saving
+        pi_samples[i,] <- pi_curr
+        p_samples[i, ] <- p_curr
+    }
+
+    # return
+    return (list(pi_samples=pi_samples, p_samples=p_samples))
+}
+```
+
+Perform sampling
+```{r echo=TRUE}
+n_samples <- 1000
+samples <- gibbs_np(n_samples, p_0, z_0, pi_0)
+str(samples)
+# # convert into matrix
+# names <- c()
+# for (j in 1:k) {
+#    names <- c(names, paste0("alpha[", j, "]"))
+# }
+# for (j in 1:k) {
+#    names <- c(names, paste0("p[", j, "]"))
+# }
+# samples <- cbind(samples$alpha_samples, samples$p_samples)
+# colnames(samples) <- names
+```
 
 ### Run the non parametric Gibbs sampler for the above data and summurize your finding. In particular discuss the posterior distribution of the number of clusters
