@@ -453,11 +453,12 @@ but with $V_j\sim\mathcal{Beta}(1+z_{+j}, 1+\sum_{l=j+1}^{k}z_{+l})$
 ```{r echo=FALSE}
 # Clear workspace
 rm(list=setdiff(ls(), c("y", "m", "n")))
+set.seed(12345)
 ```
 
 ```{r echo=TRUE}
 # parameters
-k <- 40
+k <- 20
 alpha <- 1
 ```
 
@@ -533,7 +534,7 @@ sample_pi <- function(z){
     for (j in 2:(k-1)) {
        pi[j] <- V[j] * prod(1-V[1:(j-1)])
     }
-    pi[k] <- 1 - sum(pi)
+    pi[k] <- max(0, 1 - sum(pi)) # to take care of numerical approximation errors
     # return
     return (pi)
 }
@@ -580,7 +581,6 @@ gibbs_np <- function(n_samples, p_0, z_0, pi_0){
     # iteration
     for (i in 1:n_samples) {
         pi_curr <- sample_pi(z_curr)
-        stopifnot(sum(pi_curr)==1)
         p_curr <- sample_p(z_curr)
         z_curr <- sample_z(pi_curr, p_curr)
         # saving
@@ -593,21 +593,27 @@ gibbs_np <- function(n_samples, p_0, z_0, pi_0){
 }
 ```
 
+
+### Run the non parametric Gibbs sampler for the above data and summurize your finding. In particular discuss the posterior distribution of the number of clusters
+
 Perform sampling
 ```{r echo=TRUE}
 n_samples <- 1000
 samples <- gibbs_np(n_samples, p_0, z_0, pi_0)
 str(samples)
-# # convert into matrix
-# names <- c()
-# for (j in 1:k) {
-#    names <- c(names, paste0("alpha[", j, "]"))
-# }
-# for (j in 1:k) {
-#    names <- c(names, paste0("p[", j, "]"))
-# }
-# samples <- cbind(samples$alpha_samples, samples$p_samples)
-# colnames(samples) <- names
+# convert into matrix
+names <- c()
+for (j in 1:k) {
+   names <- c(names, paste0("pi[", j, "]"))
+}
+for (j in 1:k) {
+   names <- c(names, paste0("p[", j, "]"))
+}
+samples <- cbind(samples$pi_samples, samples$p_samples)
+colnames(samples) <- names
 ```
 
-### Run the non parametric Gibbs sampler for the above data and summurize your finding. In particular discuss the posterior distribution of the number of clusters
+The effective number of clusters can be infereed from the following plot
+```{r echo=FALSE}
+plot(colSums(samples[,(1:k)])/n_samples, type="b", xlab="cluster", ylab="probability")
+```
