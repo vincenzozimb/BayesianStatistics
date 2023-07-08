@@ -1,0 +1,487 @@
+---
+title: Homework 4.2 - Bayesian Statistics 2023
+author: Vincenzo Zimbardo 
+output: html_document
+---
+
+# Exercise 2: Mixture of Gaussians
+
+```{r echo=FALSE}
+# Clear workspace
+rm(list=ls())
+```
+
+```{r, eval=TRUE, echo=FALSE}
+set.seed(1237)    
+mu <- rnorm(4, mean=0, sd=5)
+sigma <- rgamma(4, 4, 4)  
+n <- rpois(4, lambda=30)
+y <- unlist(sapply(1:4, function(i) rnorm(n[i], mean=mu[i], sd=sigma[i])))
+```
+  
+The data consists in measurements from a Gaussian mixture where each of the component of the mixture is a univariate normal distribution with 
+unknown mean and variance:
+
+\begin{equation}
+    f(y|w, \{ \mu_j, \tau_j \}_j) = \sum_{j=1}^{k} w_j N(y_i; \mu_j, \tau_j)
+\end{equation}
+
+Where $N(y; \mu, \tau)$ is the density of a normal distribution parametrized by the mean $\mu$ and the precision $\tau$.
+
+### By graphical inspection guess the number of components and implement in R a Gibbs sampler based on data augmentation
+
+```{r echo=FALSE}
+plot(density(y), main="Density estimate of the given data", xlab="y")
+```
+
+In the previous plot three modes are present, thus there are at least three clusters. Let's assume $k=3$.
+
+The complete likelihood for the mixture model is
+
+\begin{equation}
+    f(y_i | \{ \mu_j, \tau_j \}_j, z) = \prod_{j=1}^{k} N(y_i; \mu_j, \tau_j)^{z_{ij}}
+\end{equation}
+
+The data augmentation matrix has elements distributed according to
+
+\begin{equation}
+    \mathbb{P}(z_{ij} | w) = \prod_{i=1}^{n}\prod_{j=1}^{k} w_j^{z_{ij}}
+\end{equation}
+
+Where the $w$'s are the weights of the clusters.
+Assume the following prior structure:
+
+\begin{align}
+    \mu_j &\sim \mathcal{N}(m, t) \\
+    \tau_j &\sim \mathcal{Gamma}(a, b) \\
+    w &\sim \mathcal{Dirichlet}(c) 
+\end{align}
+
+Applying Bayes' theorem and calculating the full conditionals yields to:
+
+1. Full conditional for $w$: $\mathcal{Dirichlet}(c_1+z_{+1}, \dots, c_k+z_{+k})$
+
+2. Full conditional for each $\tau_j$: $\mathcal{Gamma}(a+z_{+j}/2, b + \sum_{i}z_{ij}(y_i-\mu_j)^2 / 2)$
+
+3. Full conditional for each $\mu_j$: $\mathcal{N}(\frac{t m + \tau_jy_{+j}}{t + \tau_jz_{+j}}, t + \tau_jz_{+j})$
+
+4. Full conditional for each cluster-indicator variable: $\mathcal{Cat}(r_{i1}, \dots, r_{ik})$, where $r_{ij} \propto w_j N(y_i; \mu_j, \tau_j)$
+
+```{r echo=TRUE}
+k <- 3
+n <- length(y)
+# hyper-parameters for the gamma distribution
+a <- 1
+b <- 1
+# hyper-parameters for the Dirichlet distribution
+c <- rep(1,k)
+# hyper-parameters for the normal distribution
+m <- 0
+t <- 1
+# initial parameters
+mu_0 <- quantile(y, probs = seq(0, 1, length.out = k))
+tau_0 <- rep(1, k)
+w_0 <- rep(1/k, k)
+z_0 <- matrix(0, nrow=n, ncol=k)
+for (i in 1:n) {
+   idx <- sample(1:k, 1)
+   z_0[i, idx] <- 1
+}
+```
+
+```{r echo=TRUE}
+library(DirichletReg)
+library(knitr)
+# sampling from full conditional for w
+sample_w <- function(z){
+    # input control
+    stopifnot(nrow(z)==n)
+    stopifnot(ncol(z)==k)
+    # function
+    z_plus <- colSums(z)
+    c_new <- c + z_plus
+    # return
+    rdirichlet(1, c_new)   
+}
+
+# sampling from full conditional for mu
+sample_mu <- function(z, tau){
+    # input control
+    stopifnot(nrow(z)==n)
+    stopifnot(ncol(z)==k)
+    stopifnot(length(tau)==k)
+    # function
+    y_plus <- y %*% z
+    z_plus <- colSums(z)
+    tau_new <- tau*z_plus + t
+    mu_new <- (tau*y_plus + t*m) / tau_new
+    samples <- c()
+    for (j in 1:k) {
+       samples[j] <- rnorm(1, mu_new[j], 1/sqrt(tau_new[j])) 
+    }
+    # return
+    return (samples)    
+}
+
+# sampling from full conditional for tau
+sample_tau <- function(z, mu){
+    # input control
+    stopifnot(nrow(z)==n)
+    stopifnot(ncol(z)==k)
+    stopifnot(length(mu)==k)
+    # function
+    y_plus <- y %*% z
+    y2_plus <- (y^2) %*% z
+    z_plus <- colSums(z)
+    a_new <- a + z_plus/2
+    b_new <- b + (y2_plus + 2*mu*y_plus + z_plus*mu^2) / 2
+    samples <- c()
+    for (j in 1:k) {
+       samples[j] <- rgamma(1, a_new[j], b_new[j]) 
+    }
+    # return
+    return (samples)    
+}
+
+# sampling from full conditional for z
+sample_z <- function(w, mu, tau){
+    # input control
+    stopifnot(length(w)==k)
+    stopifnot(length(mu)==k)
+    stopifnot(length(tau)==k)
+    # function
+    r <- matrix(nrow=n, ncol=k)
+    for (i in 1:n) {
+       for (j in 1:k) {
+          r[i,j] <- w[j] * dnorm(y[i], mu[j], 1/sqrt(tau[j]))
+       }
+    }
+    q <- rep(0,n)
+    for (i in 1:n) {
+       q[i] <- sample(1:k, size=1, prob=r[i,])
+    }
+    z <- matrix(0, nrow=n, ncol=k)
+    for (i in 1:n) {
+       z[i,q[i]] <- 1
+    }
+    # return
+    return (z)    
+}
+```
+
+```{r echo=TRUE}
+# Gibbs sampler
+gibbs <- function(n_samples, w_0, mu_0, tau_0, z_0){
+
+    # input control
+    stopifnot(nrow(z_0)==n)
+    stopifnot(ncol(z_0)==k)
+    stopifnot(length(w_0)==k)
+    stopifnot(length(mu_0)==k)
+    stopifnot(length(tau_0)==k)
+
+    # initial values
+    w_curr <- w_0
+    mu_curr <- mu_0
+    tau_curr <- tau_0
+    z_curr <- z_0
+  
+    # parameters to be monitored
+    w_samples <- matrix(nrow = n_samples, ncol = k)
+    mu_samples <- matrix(nrow = n_samples, ncol = k)
+    tau_samples <- matrix(nrow = n_samples, ncol = k)
+
+    # iteration
+    for (i in 1:n_samples) {
+        # update
+        w_curr <- sample_w(z_curr)
+        mu_curr <- sample_mu(z_curr, tau_curr)
+        tau_curr <- sample_tau(z_curr, mu_curr)
+        z_curr <- sample_z(w_curr, mu_curr, tau_curr)
+        # # label switching
+        # order <- order(mu_curr)
+        # w_curr <- w_curr[order]
+        # mu_curr <- mu_curr[order]
+        # tau_curr <- tau_curr[order]
+        # z_curr <- z_curr[,order]
+        # saving
+        w_samples[i,] <- w_curr
+        mu_samples[i, ] <- mu_curr
+        tau_samples[i, ] <- tau_curr
+    }
+
+    # return
+    return (list(w_samples=w_samples, mu_samples=mu_samples, tau_samples=tau_samples))    
+}
+```
+
+```{r echo=TRUE}
+simulation_plots <- function(n_samples, samples, k){
+
+    # input control
+    stopifnot(nrow(samples)==n_samples)
+    stopifnot(ncol(samples)==3*k)
+
+    # MCMC plots
+    par(mfrow = c(3, k))
+    for (j in 1:k) {
+        plot(1:n_samples,samples[,j], type="l", main=NULL, xlab = expression(i), ylab = colnames(samples)[j])
+    }
+    for (j in 1:k) {
+        plot(1:n_samples,samples[,k+j], type="l", main=NULL, xlab = expression(i), ylab = colnames(samples)[k+j])   
+    }
+    for (j in 1:k) {
+        plot(1:n_samples,samples[,2*k+j], type="l", main=NULL, xlab = expression(i), ylab = colnames(samples)[2*k+j])   
+    }
+    # Restore default plot options
+    par(mfrow = c(1, 1))
+
+    # Histograms
+    par(mfrow = c(3, k))   
+    for (j in 1:k) {
+        hist(samples[,j], main=colnames(samples)[j], xlab=NULL)
+    }
+    for (j in 1:k) {
+        hist(samples[,k+j], main=colnames(samples)[k+j], xlab=NULL)
+    }
+    for (j in 1:k) {
+        hist(samples[,2*k+j], main=colnames(samples)[2*k+j], xlab=NULL)
+    }
+    # Restore default plot options
+    par(mfrow = c(1, 1))
+}
+
+simulation_summary <- function(samples){
+    # Summary
+    means <- apply(samples, 2, mean)
+    sds <- apply(samples, 2, sd)
+    summ <- rbind(means, sds)
+    colnames(summ) <- names
+    rownames(summ) <- c("mean", "sd")
+    kable(round(summ,4))
+}
+```
+
+
+### Run the Gibbs sampler for the above data and summurize your finding
+
+Perform sampling
+
+```{r echo=TRUE}
+n_samples <- 1000
+burn_in <- 100
+samples <- gibbs(n_samples+burn_in, w_0, mu_0, tau_0, z_0)
+str(samples)
+# convert into matrix
+names <- c()
+for (j in 1:k) {
+   names <- c(names, paste0("w[", j, "]"))
+}
+for (j in 1:k) {
+   names <- c(names, paste0("mu[", j, "]"))
+}
+for (j in 1:k) {
+   names <- c(names, paste0("tau[", j, "]"))
+}
+samples_gibbs <- cbind(samples$w_samples, samples$mu_samples, samples$tau_samples)
+samples_gibbs <- samples_gibbs[-(1:burn_in),]
+colnames(samples_gibbs) <- names
+```
+
+```{r echo=TRUE}
+simulation_plots(n_samples, samples_gibbs, k)
+```
+
+### Use JAGS to implement the same model and compare the results
+
+```{r echo=TRUE}
+data_list <- list(
+  "y" = y,
+  "n" = n,
+  "k" = k
+)
+str(data_list)
+```
+
+```{r echo=TRUE}
+library(rjags)
+library(R2jags)
+
+# Define the model
+normal_mixture <- "model {
+    
+    # noninformative hyperpriors 
+    a ~ dunif(0, 100)
+    b ~ dunif(0, 100)
+    m ~ dunif(-100, 100)
+    t ~ dunif(0, 100)
+    for (j in 1:k) {
+        c[j] ~ dunif(0, 100)
+    }
+
+    # prior on alpha
+    w ~ ddirch(c[])
+    
+    # prior on q
+    for (i in 1:n){
+        q[i] ~ dcat(w[])
+    }
+
+    # prior on mu
+    for (j in 1:k) {
+        mu[j] ~ dnorm(m, t)
+    }
+
+    # prior on tau
+    for (j in 1:k) {
+        tau[j] ~ dgamma(a, b)
+    }
+
+    # Likelihood
+    for (i in 1:n) { 
+        y[i] ~ dnorm(mu[q[i]], tau[q[i]])
+    }
+
+}"
+
+# Specify desired parameters for inference
+parameters <- c("w", "mu", "tau")
+
+# Run
+n_samples <- 1000
+n.burnin <- 100
+n.thin   <- 1
+
+MCMCrun <- jags(
+  data = data_list,
+  parameters.to.save = parameters,
+  model.file = textConnection(normal_mixture),
+  n.burnin = n.burnin,
+  n.iter = n.thin*n_samples + n.burnin,
+  n.chains = 1,
+  n.thin = n.thin,
+  progress.bar = "none",
+  quiet = TRUE,
+  DIC = FALSE
+)
+```
+
+```{r echo=TRUE}
+# Posterior samples extraction
+samples_list <- MCMCrun$BUGSoutput$sims.list
+str(samples_list)
+# Convert list to matrix
+samples_jags <- cbind(samples_list$w, samples_list$mu, samples_list$tau)
+# names
+colnames(samples_jags) <- names
+```
+
+```{r echo=TRUE}
+simulation_plots(n_samples, samples_jags, k)
+```
+
+#### Comparison 
+
+```{r echo=TRUE}
+simulation_summary(samples_gibbs)
+simulation_summary(samples_jags)
+```
+
+Jags is better, look at trace plot. However, similar results, even if not precisely. But both are wrong, sign of a wrong $k$...
+
+
+### Assume the number of components is actually one more then the one you guess. Repeat the analysis using both your algorithm and JAGS
+
+```{r echo=TRUE}
+k <- 4
+# re-initialize what needed
+c <- rep(1,k)
+w_0 <- runif(k)
+w_0 <- w_0 / sum(w_0)
+mu_0 <- rep(0,k) 
+tau_0 <- rep(1,k)
+z_0 <- matrix(0, nrow=n, ncol=k)
+for (i in 1:n) {
+   idx <- sample(1:k, 1)
+   z_0[i, idx] <- 1
+}
+```
+
+Gibbs sampler
+
+```{r echo=TRUE}
+samples <- gibbs(n_samples+burn_in, w_0, mu_0, tau_0, z_0)
+str(samples)
+# convert into matrix
+names <- c()
+for (j in 1:k) {
+   names <- c(names, paste0("w[", j, "]"))
+}
+for (j in 1:k) {
+   names <- c(names, paste0("mu[", j, "]"))
+}
+for (j in 1:k) {
+   names <- c(names, paste0("tau[", j, "]"))
+}
+samples_gibbs <- cbind(samples$w_samples, samples$mu_samples, samples$tau_samples)
+samples_gibbs <- samples_gibbs[-(1:burn_in),]
+colnames(samples_gibbs) <- names
+```
+
+```{r echo=TRUE}
+simulation_plots(n_samples, samples_gibbs, k)
+```
+
+JAGS
+
+```{r echo=TRUE}
+data_list$k <- k
+data_list$c <- c
+str(data_list)
+
+MCMCrun <- jags(
+  data = data_list,
+  parameters.to.save = parameters,
+  model.file = textConnection(normal_mixture),
+  n.burnin = n.burnin,
+  n.iter = n.thin*n_samples + n.burnin,
+  n.chains = 1,
+  n.thin = n.thin,
+  progress.bar = "none",
+  quiet = TRUE,
+  DIC = FALSE
+)
+```
+
+```{r echo=TRUE}
+# Posterior samples extraction
+samples_list <- MCMCrun$BUGSoutput$sims.list
+str(samples_list)
+# Convert list to matrix
+samples_jags <- cbind(samples_list$w, samples_list$mu, samples_list$tau)
+colnames(samples_jags) <- names
+```
+
+```{r echo=TRUE}
+simulation_plots(n_samples, samples_jags, k)
+```
+
+#### Comparison 
+
+```{r echo=TRUE}
+simulation_summary(samples_gibbs)
+simulation_summary(samples_jags)
+```
+
+
+```{r echo=TRUE}
+
+```
+
+
+
+### Suggest a way to compare the two models and propose a final model
+
+- Assume now the number of components is unknown. Implement in R a non parametric Gibbs sampler with stick-breaking approach and Dirichlet prior
+- Run the non parametric Gibbs sampler for the above data and summurize your finding. In particular discuss the posterior distribution of the number of clusters
+- Compare the results with the previous analysis in which the number of components was fixed a priori       

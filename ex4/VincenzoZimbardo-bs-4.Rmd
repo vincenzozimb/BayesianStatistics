@@ -44,7 +44,7 @@ The complete likelihood is:
 Prior on $z$. The row of $z$ are independent and constructed assuming a categorical distribution as a model, leading to:
 
 \begin{equation}
-    f(z | \alpha) = \prod_{i=1}^{n} \prod_{j=1}^{k} \alpha_i^{z_{ij}}
+    \mathbb{P}(z_{ij} | \alpha) = \prod_{i=1}^{n} \prod_{j=1}^{k} \alpha_i^{z_{ij}}
 \end{equation}
 
 Prior on $\alpha$. As the alphas form a discrete probability distribution, the vector $\alpha$ must belong to the simplex of order $k-1$. 
@@ -63,7 +63,7 @@ Prior on $p$. We assume each $p$ to be independent and distributed according to 
 Applying Bayes' theorem, the posterior distribution is:
 
 \begin{equation}
-    f(\alpha, p, z) \propto f(y | \alpha, p, z) f(z | \alpha) f(\alpha) f(p)
+    f(\alpha, p, z | y) \propto f(y | \alpha, p, z) \mathbb{P}(z | \alpha) f(\alpha) f(p)
 \end{equation}
 
 In order to implement a Gibbs sampler, we need the full conditionals. Exploiting conjugacy we obtain:
@@ -151,7 +151,9 @@ sample_z <- function(alpha, p){
     # return
     return (z)    
 }
+```
 
+```{r echo=TRUE}
 # Gibbs sampler
 gibbs <- function(n_samples, alpha_0, p_0, z_0){
 
@@ -209,7 +211,7 @@ MCMC plots
 
 ```{r echo=FALSE, eval=TRUE}
 # trace  to check convergence 
-par(mfrow = c(1, k))
+par(mfrow = c(2, k))
 for (j in 1:k) {
     plot(1:n_samples,samples[,j], type="l", main=NULL, xlab = expression(i), ylab = colnames(samples)[j])
 }
@@ -225,7 +227,7 @@ par(mfrow = c(1, 1))
 Histograms
 
 ```{r echo=FALSE}
-par(mfrow = c(1, k))
+par(mfrow = c(2, k))
 for (j in 1:k) {
     hist(samples[,j], main=colnames(samples)[j], xlab=NULL)
 }
@@ -337,7 +339,7 @@ MCMC plots
 
 ```{r echo=FALSE, eval=TRUE}
 # trace  to check convergence 
-par(mfrow = c(1, k))
+par(mfrow = c(2, k))
 for (j in 1:k) {
     plot(1:n_samples,samples[,j], type="l", main=NULL, xlab = expression(i), ylab = colnames(samples)[j])
 }
@@ -353,7 +355,7 @@ par(mfrow = c(1, 1))
 Histograms
 
 ```{r echo=FALSE}
-par(mfrow = c(1, k))
+par(mfrow = c(2, k))
 for (j in 1:k) {
     hist(samples[,j], main=colnames(samples)[j], xlab=NULL)
 }
@@ -550,13 +552,6 @@ for (i in 1:n) {
    idx <- sample(1:k, 1)
    z_0[i, idx] <- 1
 }
-```
-
-```{r echo=TRUE}
-# # test functions
-# test_p <- sample_p(z_0)
-# test_z <- sample_z(pi_0, p_0)
-# test_pi <- sample_pi(z_0)
 ```
 
 ```{r echo=TRUE}
