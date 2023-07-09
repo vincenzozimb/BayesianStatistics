@@ -446,7 +446,7 @@ Where:
 
 1. Exploiting conjugacy, each $p_j$ is sampled from a $\mathcal{Beta}(\alpha/k + y_{+j}, \alpha(k-1)/k + m_{+j} - y_{+j})$
 
-2. For each $i$, calculate $\pi_{ij} \propto \pi_j \binom{m_i}{y_i}p_j^{y_i}(1-p_j)^{m_i-y_i}$ and sample $q_i$ from the discrete distribution $\sum_{j=1}^{k}\pi_{ij}\delta_k(\cdot)$
+2. For each $i$, calculate $\pi_{ij} \propto \pi_j \binom{m_i}{y_i}p_j^{y_i}(1-p_j)^{m_i-y_i}$ and sample $q_i$ from the discrete distribution $\sum_{j=1}^{k}\pi_{ij}\delta_j(\cdot)$
 
 3. A stick-breaking procedure: $\pi_j = V_j \prod_{l=1}^{j-1}(1-V_l)$ except for $j=k$ for which $\pi_k = 1-\sum_{l=1}^{k-1} \pi_l$, 
 but with $V_j\sim\mathcal{Beta}(1+z_{+j}, 1+\sum_{l=j+1}^{k}z_{+l})$ 

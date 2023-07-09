@@ -387,102 +387,319 @@ simulation_summary(samples_gibbs)
 simulation_summary(samples_jags)
 ```
 
-Jags is better, look at trace plot. However, similar results, even if not precisely. But both are wrong, sign of a wrong $k$... 
+Jags is better, look at trace plot. However, similar results, even if not precisely. But both are wrong, sign of a wrong $k$ (not anymore)... 
 Also gibbs sampler requires more samples to properly work, instead jags is optimized
 
 
 ### Assume the number of components is actually one more then the one you guess. Repeat the analysis using both your algorithm and JAGS
 
 ```{r echo=TRUE}
-# k <- 4
-# # re-initialize what needed
-# c <- rep(1,k)
-# w_0 <- runif(k)
-# w_0 <- w_0 / sum(w_0)
-# mu_0 <- rep(0,k) 
-# tau_0 <- rep(1,k)
-# z_0 <- matrix(0, nrow=n, ncol=k)
-# for (i in 1:n) {
-#    idx <- sample(1:k, 1)
-#    z_0[i, idx] <- 1
-# }
+k <- 4
+# re-initialize what needed
+c <- rep(1,k)
+w_0 <- rep(1/k, k)
+mu_0 <- quantile(y, probs = seq(0, 1, length.out = k))
+tau_0 <- rep(1e-2, k)
+z_0 <- matrix(0, nrow=n, ncol=k)
+for (i in 1:n) {
+   idx <- sample(1:k, 1)
+   z_0[i, idx] <- 1
+}
 ```
 
 Gibbs sampler
 
 ```{r echo=TRUE}
-# samples <- gibbs(n_samples+burn_in, w_0, mu_0, tau_0, z_0)
-# str(samples)
-# # convert into matrix
-# names <- c()
-# for (j in 1:k) {
-#    names <- c(names, paste0("w[", j, "]"))
-# }
-# for (j in 1:k) {
-#    names <- c(names, paste0("mu[", j, "]"))
-# }
-# for (j in 1:k) {
-#    names <- c(names, paste0("tau[", j, "]"))
-# }
-# samples_gibbs <- cbind(samples$w_samples, samples$mu_samples, samples$tau_samples)
-# samples_gibbs <- samples_gibbs[-(1:burn_in),]
-# colnames(samples_gibbs) <- names
+samples <- gibbs(n_samples+burn_in, w_0, mu_0, tau_0, z_0)
+str(samples)
+# convert into matrix
+names <- c()
+for (j in 1:k) {
+   names <- c(names, paste0("w[", j, "]"))
+}
+for (j in 1:k) {
+   names <- c(names, paste0("mu[", j, "]"))
+}
+for (j in 1:k) {
+   names <- c(names, paste0("tau[", j, "]"))
+}
+samples_gibbs <- cbind(samples$w_samples, samples$mu_samples, samples$tau_samples)
+samples_gibbs <- samples_gibbs[-(1:burn_in),]
+colnames(samples_gibbs) <- names
 ```
 
 ```{r echo=TRUE}
-# simulation_plots(n_samples, samples_gibbs, k)
+simulation_plots(n_samples, samples_gibbs, k)
 ```
 
 JAGS
 
 ```{r echo=TRUE}
-# data_list$k <- k
-# data_list$c <- c
-# str(data_list)
+data_list$k <- k
+data_list$c <- c
+str(data_list)
 
-# MCMCrun <- jags(
-#   data = data_list,
-#   parameters.to.save = parameters,
-#   model.file = textConnection(normal_mixture),
-#   n.burnin = n.burnin,
-#   n.iter = n.thin*n_samples + n.burnin,
-#   n.chains = 1,
-#   n.thin = n.thin,
-#   progress.bar = "none",
-#   quiet = TRUE,
-#   DIC = FALSE
-# )
+MCMCrun <- jags(
+  data = data_list,
+  parameters.to.save = parameters,
+  model.file = textConnection(normal_mixture),
+  n.burnin = n.burnin,
+  n.iter = n.thin*n_samples + n.burnin,
+  n.chains = 1,
+  n.thin = n.thin,
+  progress.bar = "none",
+  quiet = TRUE,
+  DIC = FALSE
+)
 ```
 
 ```{r echo=TRUE}
-# # Posterior samples extraction
-# samples_list <- MCMCrun$BUGSoutput$sims.list
-# str(samples_list)
-# # Convert list to matrix
-# samples_jags <- cbind(samples_list$w, samples_list$mu, samples_list$tau)
-# colnames(samples_jags) <- names
+# Posterior samples extraction
+samples_list <- MCMCrun$BUGSoutput$sims.list
+str(samples_list)
+# Convert list to matrix
+samples_jags <- cbind(samples_list$w, samples_list$mu, samples_list$tau)
+colnames(samples_jags) <- names
 ```
 
 ```{r echo=TRUE}
-# simulation_plots(n_samples, samples_jags, k)
+simulation_plots(n_samples, samples_jags, k)
 ```
 
 #### Comparison 
 
 ```{r echo=TRUE}
-# simulation_summary(samples_gibbs)
-# simulation_summary(samples_jags)
+simulation_summary(samples_gibbs)
+simulation_summary(samples_jags)
 ```
 
+
+### Assume now the number of components is unknown. Implement in R a non parametric Gibbs sampler with stick-breaking approach and Dirichlet prior
+
+In this case the model is:
+
+\begin{align}
+    y_i | q_i, \{ \mu_j, \tau_j \}_j &\sim \mathcal{N}(\mu_{q_i},\tau_{q_i}) \\
+    \mu_j &\sim \mathcal{N}(m, t) \\
+    \tau_j &\sim \mathcal{Gamma}(a.b) \\
+    q_i | w &\sim \mathcal{Cat}(w_1, \dots, w_k) \\
+    w &\sim GEM(\alpha)
+\end{align}
+
+#### Sample from the posterior: Blocked Gibbs sampler.
+
+The state space of the Gibbs sampler is $\{ \mu=(\mu_1, \dots, \mu_k), \tau=(\tau_1, \dots, \tau_k), w=(w_1, \dots, w_k), q_1, \dots, q_n \}$. 
+The sampling iteration procedes as follows:
+
+1. Sample $\mu | \tau, q_1, \dots, q_n, y$
+
+2. Sample $\tau | \mu, q_1, \dots, q_n, y$
+
+3. Sample $q_1, \dots, q_n | \mu, \tau, w, y$
+
+4. Sample $w | q_1, \dots, q_n$
+
+Where:
+
+1. Exploiting conjugacy, each $\mu_j$ is sampled from a $\mathcal{Normal}(\frac{mt+y_{+j}\tau_j}{t+z_{+j}\tau_j},t+z_{+j}\tau_j)$
+
+2. Exploiting conjugacy, each $\tau_j$ is sampled from a $\mathcal{Gamma}(a+z_{+j}/2, b+\sum_i z_{ij}(y_i-\mu_j)^2 /2)$
+
+3. Similarly to the exercise 1, but with $w_{ij} \propto w_i N(y_i; \mu_j, \tau_j)$
+
+4. A stick-breaking procedure as done in exercise 1
+
+```{r echo=FALSE}
+# Clear workspace
+rm(list=setdiff(ls(), c("y")))
+n <- length(y)
+set.seed(12345)
+```
 
 ```{r echo=TRUE}
+# parameters
+k <- 20
+alpha <- 1
+```
 
+```{r echo=TRUE}
+# sample mu
+sample_mu <- function(z, tau){
+    # input control
+    stopifnot(nrow(z)==n)
+    stopifnot(ncol(z)==k)
+    # function
+    y_plus <- y %*% z
+    z_plus <- colSums(z)
+    t_new <- t + z_plus*tau 
+    m_new <- (m*t + y_plus*tau) / t_new
+    samples <- c()
+    for (j in 1:k) {
+       samples[j] <- rnorm(1, m_new[j], 1/sqrt(t_new[j])) 
+    }
+    # return
+    return (samples)    
+}
+# sample tau
+sample_tau <- function(z, mu){
+    # input control
+    stopifnot(nrow(z)==n)
+    stopifnot(ncol(z)==k)
+    # function
+    y_plus <- y %*% z
+    y2_plus <- (y^2) %*% z
+    z_plus <- colSums(z)
+    a_new <- a + z_plus/2 
+    b_new <- b + (y2_plus -2*mu*y_plus + z_plus*mu^2) / 2
+    samples <- c()
+    for (j in 1:k) {
+       samples[j] <- rgamma(1, a_new[j], b_new[j]) 
+    }
+    # return
+    return (samples)    
+}
+# construct z matrix from the q's
+z_matrix <- function(q){
+    # input control
+    stopifnot(length(q)==n)
+    # function
+    z <- matrix(0, nrow=n, ncol=k)
+    for (i in 1:n) {
+       z[i,q[i]] <- 1
+    }
+    # return
+    return (z)
+}
+# sample q's
+sample_z <- function(w, mu, tau){
+    # input control
+    stopifnot(length(mu)==k)
+    stopifnot(length(tau)==k)
+    stopifnot(length(w)==k)
+    # function
+    r <- matrix(0, nrow=n, ncol=k)
+    for (i in 1:n) {
+       for (j in 1:k) {
+        r[i,j] <- w[j] * dnorm(y[i], mu[j], 1/sqrt(tau[j]))
+       }
+    }
+    q <- c()
+    for (i in 1:n) {
+       q[i] <- sample(1:k, size=1, prob=r[i,])
+    }
+    # return
+    return (z_matrix(q))
+}
+# sample w
+sample_w <- function(z){
+    # input control
+    stopifnot(nrow(z)==n)
+    stopifnot(ncol(z)==k)
+    # function
+    z_plus <- colSums(z)
+    aa <- 1 + z_plus
+    bb <- c()
+    for (j in 1:(k-1)) {
+        bb[j] <- 1 + sum(z_plus[(j+1):k])
+    }
+    bb[k] <- 1
+    # sample V's
+    V <- c()
+    for (j in 1:k) {
+       V[j] <- rbeta(1, aa[j], bb[j])
+    }
+    w <- c()
+    w[1] <- V[1]
+    for (j in 2:(k-1)) {
+       w[j] <- V[j] * prod(1-V[1:(j-1)])
+    }
+    w[k] <- max(0, 1 - sum(w)) # to take care of numerical approximation errors
+    # return
+    return (w)
+}
+```
+
+```{r echo=TRUE}
+# hyper-parameters for the gamma distribution
+a <- 1
+b <- 1
+# hyper-parameters for the normal distribution
+m <- 0
+t <- 1e-3
+# initial values for the chain
+mu_0 <- quantile(y, probs = seq(0, 1, length.out = k))
+tau_0 <- rep(1e-2, k)
+w_0 <- rep(1/k, k)
+z_0 <- matrix(0, nrow=n, ncol=k)
+for (i in 1:n) {
+   idx <- sample(1:k, 1)
+   z_0[i, idx] <- 1
+}
+```
+
+```{r echo=TRUE}
+# Gibbs sampler
+gibbs_np <- function(n_samples, mu_0, tau_0, z_0, w_0){
+
+    # input control
+    stopifnot(nrow(z_0)==n)
+    stopifnot(ncol(z_0)==k)
+    stopifnot(length(w_0)==k)
+    stopifnot(length(mu_0)==k)
+    stopifnot(length(tau_0)==k)
+
+    # initial values
+    w_curr <- w_0
+    mu_curr <- mu_0
+    tau_curr <- tau_0
+    z_curr <- z_0
+  
+    # parameters to be monitored
+    w_samples <- matrix(nrow = n_samples, ncol = k)
+    mu_samples <- matrix(nrow = n_samples, ncol = k)
+    tau_samples <- matrix(nrow = n_samples, ncol = k)
+
+    # iteration
+    for (i in 1:n_samples) {
+        w_curr <- sample_w(z_curr)
+        mu_curr <- sample_mu(z_curr, tau_curr)
+        tau_curr <- sample_tau(z_curr, mu_curr)
+        z_curr <- sample_z(w_curr, mu_curr, tau_curr)
+        # saving
+        w_samples[i,] <- w_curr
+        mu_samples[i, ] <- mu_curr
+        tau_samples[i, ] <- tau_curr
+    }
+
+    # return
+    return (list(w_samples=w_samples, mu_samples=mu_samples, tau_samples=tau_samples))
+}
 ```
 
 
+### Run the non parametric Gibbs sampler for the above data and summurize your finding. In particular discuss the posterior distribution of the number of clusters
 
-### Suggest a way to compare the two models and propose a final model
+Perform sampling
+```{r echo=TRUE}
+n_samples <- 1000
+samples <- gibbs_np(n_samples, mu_0, tau_0, z_0, w_0)
+str(samples)
+# convert into matrix
+names <- c()
+for (j in 1:k) {
+   names <- c(names, paste0("w[", j, "]"))
+}
+for (j in 1:k) {
+   names <- c(names, paste0("mu[", j, "]"))
+}
+for (j in 1:k) {
+   names <- c(names, paste0("tau[", j, "]"))
+}
+samples <- cbind(samples$w_samples, samples$mu_samples, samples$tau_samples)
+colnames(samples) <- names
+```
 
-- Assume now the number of components is unknown. Implement in R a non parametric Gibbs sampler with stick-breaking approach and Dirichlet prior
-- Run the non parametric Gibbs sampler for the above data and summurize your finding. In particular discuss the posterior distribution of the number of clusters
-- Compare the results with the previous analysis in which the number of components was fixed a priori       
+The effective number of clusters can be infereed from the following plot
+```{r echo=FALSE}
+plot(colSums(samples[,(1:k)])/n_samples, type="b", xlab="cluster", ylab="probability")
+```
