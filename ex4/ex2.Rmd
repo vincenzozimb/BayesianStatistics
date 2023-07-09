@@ -77,10 +77,10 @@ b <- 1
 c <- rep(1,k)
 # hyper-parameters for the normal distribution
 m <- 0
-t <- 1
+t <- 1e-3
 # initial parameters
 mu_0 <- quantile(y, probs = seq(0, 1, length.out = k))
-tau_0 <- rep(1, k)
+tau_0 <- rep(1e-2, k)
 w_0 <- rep(1/k, k)
 z_0 <- matrix(0, nrow=n, ncol=k)
 for (i in 1:n) {
@@ -198,12 +198,12 @@ gibbs <- function(n_samples, w_0, mu_0, tau_0, z_0){
         mu_curr <- sample_mu(z_curr, tau_curr)
         tau_curr <- sample_tau(z_curr, mu_curr)
         z_curr <- sample_z(w_curr, mu_curr, tau_curr)
-        # # label switching
-        # order <- order(mu_curr)
-        # w_curr <- w_curr[order]
-        # mu_curr <- mu_curr[order]
-        # tau_curr <- tau_curr[order]
-        # z_curr <- z_curr[,order]
+        # label switching
+        order <- order(mu_curr)
+        w_curr <- w_curr[order]
+        mu_curr <- mu_curr[order]
+        tau_curr <- tau_curr[order]
+        z_curr <- z_curr[,order]
         # saving
         w_samples[i,] <- w_curr
         mu_samples[i, ] <- mu_curr
@@ -387,90 +387,91 @@ simulation_summary(samples_gibbs)
 simulation_summary(samples_jags)
 ```
 
-Jags is better, look at trace plot. However, similar results, even if not precisely. But both are wrong, sign of a wrong $k$...
+Jags is better, look at trace plot. However, similar results, even if not precisely. But both are wrong, sign of a wrong $k$... 
+Also gibbs sampler requires more samples to properly work, instead jags is optimized
 
 
 ### Assume the number of components is actually one more then the one you guess. Repeat the analysis using both your algorithm and JAGS
 
 ```{r echo=TRUE}
-k <- 4
-# re-initialize what needed
-c <- rep(1,k)
-w_0 <- runif(k)
-w_0 <- w_0 / sum(w_0)
-mu_0 <- rep(0,k) 
-tau_0 <- rep(1,k)
-z_0 <- matrix(0, nrow=n, ncol=k)
-for (i in 1:n) {
-   idx <- sample(1:k, 1)
-   z_0[i, idx] <- 1
-}
+# k <- 4
+# # re-initialize what needed
+# c <- rep(1,k)
+# w_0 <- runif(k)
+# w_0 <- w_0 / sum(w_0)
+# mu_0 <- rep(0,k) 
+# tau_0 <- rep(1,k)
+# z_0 <- matrix(0, nrow=n, ncol=k)
+# for (i in 1:n) {
+#    idx <- sample(1:k, 1)
+#    z_0[i, idx] <- 1
+# }
 ```
 
 Gibbs sampler
 
 ```{r echo=TRUE}
-samples <- gibbs(n_samples+burn_in, w_0, mu_0, tau_0, z_0)
-str(samples)
-# convert into matrix
-names <- c()
-for (j in 1:k) {
-   names <- c(names, paste0("w[", j, "]"))
-}
-for (j in 1:k) {
-   names <- c(names, paste0("mu[", j, "]"))
-}
-for (j in 1:k) {
-   names <- c(names, paste0("tau[", j, "]"))
-}
-samples_gibbs <- cbind(samples$w_samples, samples$mu_samples, samples$tau_samples)
-samples_gibbs <- samples_gibbs[-(1:burn_in),]
-colnames(samples_gibbs) <- names
+# samples <- gibbs(n_samples+burn_in, w_0, mu_0, tau_0, z_0)
+# str(samples)
+# # convert into matrix
+# names <- c()
+# for (j in 1:k) {
+#    names <- c(names, paste0("w[", j, "]"))
+# }
+# for (j in 1:k) {
+#    names <- c(names, paste0("mu[", j, "]"))
+# }
+# for (j in 1:k) {
+#    names <- c(names, paste0("tau[", j, "]"))
+# }
+# samples_gibbs <- cbind(samples$w_samples, samples$mu_samples, samples$tau_samples)
+# samples_gibbs <- samples_gibbs[-(1:burn_in),]
+# colnames(samples_gibbs) <- names
 ```
 
 ```{r echo=TRUE}
-simulation_plots(n_samples, samples_gibbs, k)
+# simulation_plots(n_samples, samples_gibbs, k)
 ```
 
 JAGS
 
 ```{r echo=TRUE}
-data_list$k <- k
-data_list$c <- c
-str(data_list)
+# data_list$k <- k
+# data_list$c <- c
+# str(data_list)
 
-MCMCrun <- jags(
-  data = data_list,
-  parameters.to.save = parameters,
-  model.file = textConnection(normal_mixture),
-  n.burnin = n.burnin,
-  n.iter = n.thin*n_samples + n.burnin,
-  n.chains = 1,
-  n.thin = n.thin,
-  progress.bar = "none",
-  quiet = TRUE,
-  DIC = FALSE
-)
+# MCMCrun <- jags(
+#   data = data_list,
+#   parameters.to.save = parameters,
+#   model.file = textConnection(normal_mixture),
+#   n.burnin = n.burnin,
+#   n.iter = n.thin*n_samples + n.burnin,
+#   n.chains = 1,
+#   n.thin = n.thin,
+#   progress.bar = "none",
+#   quiet = TRUE,
+#   DIC = FALSE
+# )
 ```
 
 ```{r echo=TRUE}
-# Posterior samples extraction
-samples_list <- MCMCrun$BUGSoutput$sims.list
-str(samples_list)
-# Convert list to matrix
-samples_jags <- cbind(samples_list$w, samples_list$mu, samples_list$tau)
-colnames(samples_jags) <- names
+# # Posterior samples extraction
+# samples_list <- MCMCrun$BUGSoutput$sims.list
+# str(samples_list)
+# # Convert list to matrix
+# samples_jags <- cbind(samples_list$w, samples_list$mu, samples_list$tau)
+# colnames(samples_jags) <- names
 ```
 
 ```{r echo=TRUE}
-simulation_plots(n_samples, samples_jags, k)
+# simulation_plots(n_samples, samples_jags, k)
 ```
 
 #### Comparison 
 
 ```{r echo=TRUE}
-simulation_summary(samples_gibbs)
-simulation_summary(samples_jags)
+# simulation_summary(samples_gibbs)
+# simulation_summary(samples_jags)
 ```
 
 
