@@ -42,13 +42,9 @@ The complete likelihood for the mixture model is
     f(y_i | \{ \mu_j, \tau_j \}_j, z) = \prod_{j=1}^{k} N(y_i; \mu_j, \tau_j)^{z_{ij}}
 \end{equation}
 
-The data augmentation matrix has elements distributed according to
+The rows of the data augmentation matrix are constructed extracting the column index from a categorical distribution, as done in the previous exercise.
 
-\begin{equation}
-    \mathbb{P}(z_{ij} | w) = \prod_{i=1}^{n}\prod_{j=1}^{k} w_j^{z_{ij}}
-\end{equation}
-
-Where the $w$'s are the weights of the clusters.
+Let the $w$'s be the weights of the clusters.
 Assume the following prior structure:
 
 \begin{align}
@@ -387,8 +383,9 @@ simulation_summary(samples_gibbs)
 simulation_summary(samples_jags)
 ```
 
-Jags is better, look at trace plot. However, similar results, even if not precisely. But both are wrong, sign of a wrong $k$ (not anymore)... 
-Also gibbs sampler requires more samples to properly work, instead jags is optimized
+The results obtained with JAGS are expected to be more reliable, as it is possible to conclude from the trace plots.
+However, similar results are obtained, even if not so precisely. 
+In particular, the implement version of the Gibbs sampler requires more samples to properly work, instead jags is optimized.
 
 
 ### Assume the number of components is actually one more then the one you guess. Repeat the analysis using both your algorithm and JAGS
@@ -436,7 +433,6 @@ JAGS
 
 ```{r echo=TRUE}
 data_list$k <- k
-data_list$c <- c
 str(data_list)
 
 MCMCrun <- jags(
@@ -519,7 +515,6 @@ set.seed(12345)
 ```{r echo=TRUE}
 # parameters
 k <- 20
-alpha <- 1
 ```
 
 ```{r echo=TRUE}
@@ -702,4 +697,15 @@ colnames(samples) <- names
 The effective number of clusters can be infereed from the following plot
 ```{r echo=FALSE}
 plot(colSums(samples[,(1:k)])/n_samples, type="b", xlab="cluster", ylab="probability")
+```
+
+Summary
+
+```{r echo=TRUE}
+means <- colMeans(samples[,c(1:4,(k+1):(k+4),(2*k+1):(2*k+4))])
+sds <- apply(samples[,c(1:4,(k+1):(k+4),(2*k+1):(2*k+4))], 2, sd)
+summ <- round(rbind(means, sds),4)
+colnames(summ) <- names[c(1:4,(k+1):(k+4),(2*k+1):(2*k+4))]
+rownames(summ) <- c("mean", "sd")
+kable(summ)
 ```
