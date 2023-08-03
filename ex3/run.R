@@ -3,8 +3,6 @@
 
 # Now you are ready 
 library(rmarkdown)
+
 render('VincenzoZimbardo-bs-3.Rmd', 'html_document')
 system("gnome-terminal -- google-chrome VincenzoZimbardo-bs-3.html")
-
-# render('ElisaMuratore-bs-3.Rmd', 'html_document')
-# system("gnome-terminal -- google-chrome ElisaMuratore-bs-3.html")

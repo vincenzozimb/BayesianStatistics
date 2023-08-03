@@ -6,6 +6,3 @@ library(rmarkdown)
 
 render('VincenzoZimbardo-bs-4.Rmd', 'html_document')
 system("gnome-terminal -- google-chrome VincenzoZimbardo-bs-4.html")
-
-# render('ex2.Rmd', 'html_document')
-# system("gnome-terminal -- google-chrome ex2.html")

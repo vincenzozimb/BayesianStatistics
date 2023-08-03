@@ -5,6 +5,3 @@
 library(rmarkdown)
 render('VincenzoZimbardo-bs-2.Rmd', 'html_document')
 system("gnome-terminal -- google-chrome VincenzoZimbardo-bs-2.html")
-
-# render('ElisaMuratore-bs-2.Rmd', 'html_document')
-# system("gnome-terminal -- google-chrome ElisaMuratore-bs-2.html")
